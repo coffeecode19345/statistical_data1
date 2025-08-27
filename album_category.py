@@ -20,8 +20,6 @@ data = [
 # -------------------------------
 if "image_indices" not in st.session_state:
     st.session_state.image_indices = {item["folder"]: 0 for item in data}
-if "fullscreen" not in st.session_state:
-    st.session_state.fullscreen = {item["folder"]: False for item in data}
 
 SURVEY_FILE = "survey_data.json"
 
@@ -52,7 +50,7 @@ def delete_survey_entry(folder, timestamp):
         save_survey_data(survey_data)
 
 # -------------------------------
-# CSS Styling (hover zoom effect)
+# CSS Styling + Prevent Right-Click
 # -------------------------------
 st.markdown("""
     <style>
@@ -61,11 +59,21 @@ st.markdown("""
         border-radius: 8px;
         box-shadow: 3px 3px 8px rgba(0, 0, 0, 0.3);
         margin-bottom: 10px;
-        transition: transform 0.3s ease;
     }
-    .image-container img:hover {
-        transform: scale(1.3);
-        z-index: 999;
+    /* Prevent right click and dragging on images */
+    img {
+        pointer-events: none;
+        -webkit-user-drag: none;
+        -khtml-user-drag: none;
+        -moz-user-drag: none;
+        -o-user-drag: none;
+        user-drag: none;
+        user-select: none;
+    }
+    body {
+        -webkit-user-select: none;
+        -ms-user-select: none;
+        user-select: none;
     }
     </style>
 """, unsafe_allow_html=True)
@@ -101,30 +109,21 @@ for category, tab in zip(categories, tabs):
                     current_index = st.session_state.image_indices.get(item["folder"], 0) % len(image_files)
                     image_path = os.path.join(folder_path, image_files[current_index])
 
-                    # -------------------------------
-                    # Fullscreen viewer (session_state instead of modal)
-                    # -------------------------------
+                    # "View" button -> larger image in full width
                     if st.button(f"🔍 View {item['name']}", key=f"view_{item['folder']}_{idx}"):
-                        st.session_state.fullscreen[item["folder"]] = True
-                        st.rerun()
-
-                    # Show fullscreen images if toggled
-                    if st.session_state.fullscreen.get(item["folder"], False):
-                        st.subheader(f"Fullscreen view: {item['name']}")
                         st.image(
-                            [os.path.join(folder_path, f) for f in image_files],
-                            caption=[f"{item['name']} - {f}" for f in image_files],
+                            image_path,
+                            caption=f"{item['name']} ({item['age']}, {item['profession']})",
                             use_container_width=True
                         )
-                        if st.button("❌ Close", key=f"close_{item['folder']}"):
-                            st.session_state.fullscreen[item["folder"]] = False
-                            st.rerun()
 
-                    # -------------------------------
-                    # Normal thumbnail display
-                    # -------------------------------
+                    # Normal display (smaller image with protection)
                     st.markdown('<div class="image-container">', unsafe_allow_html=True)
-                    st.image(image_path, caption=f"{item['name']} ({item['age']}, {item['profession']})", use_container_width=True)
+                    st.image(
+                        image_path,
+                        caption=f"{item['name']} ({item['age']}, {item['profession']})",
+                        width=300
+                    )
                     st.markdown('</div>', unsafe_allow_html=True)
 
                     # Navigation buttons
