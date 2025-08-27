@@ -50,7 +50,7 @@ def delete_survey_entry(folder, timestamp):
         save_survey_data(survey_data)
 
 # -------------------------------
-# CSS Styling
+# CSS Styling (hover zoom effect)
 # -------------------------------
 st.markdown("""
     <style>
@@ -59,6 +59,11 @@ st.markdown("""
         border-radius: 8px;
         box-shadow: 3px 3px 8px rgba(0, 0, 0, 0.3);
         margin-bottom: 10px;
+        transition: transform 0.3s ease;
+    }
+    .image-container img:hover {
+        transform: scale(1.3);
+        z-index: 999;
     }
     </style>
 """, unsafe_allow_html=True)
@@ -94,14 +99,22 @@ for category, tab in zip(categories, tabs):
                     current_index = st.session_state.image_indices.get(item["folder"], 0) % len(image_files)
                     image_path = os.path.join(folder_path, image_files[current_index])
 
-                    # Thumbnail + enlarge modal
+                    # -------------------------------
+                    # Modal gallery view (all images large)
+                    # -------------------------------
                     if st.button(f"🔍 View {item['name']}", key=f"view_{item['folder']}_{idx}"):
-                        with st.modal(f"{item['name']} - Fullscreen"):
-                            st.image(image_path, caption=f"{item['name']} ({item['age']}, {item['profession']})", use_container_width=True)
+                        with st.modal(f"{item['name']} - Gallery"):
+                            st.image(
+                                [os.path.join(folder_path, f) for f in image_files],
+                                caption=[f"{item['name']} - {f}" for f in image_files],
+                                use_container_width=True
+                            )
 
-                    # Normal display
+                    # -------------------------------
+                    # Normal thumbnail display
+                    # -------------------------------
                     st.markdown('<div class="image-container">', unsafe_allow_html=True)
-                    st.image(image_path, caption=f"{item['name']} ({item['age']}, {item['profession']})", width=300)
+                    st.image(image_path, caption=f"{item['name']} ({item['age']}, {item['profession']})", use_container_width=True)
                     st.markdown('</div>', unsafe_allow_html=True)
 
                     # Navigation buttons
