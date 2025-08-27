@@ -15,12 +15,6 @@ data = [
     {"name": "Haoran", "age": 34, "profession": "History Teacher", "category": "Teachers", "folder": "haoran"}
 ]
 
-# -------------------------------
-# Initialize session state
-# -------------------------------
-if "image_indices" not in st.session_state:
-    st.session_state.image_indices = {item["folder"]: 0 for item in data}
-
 SURVEY_FILE = "survey_data.json"
 
 # -------------------------------
@@ -64,9 +58,6 @@ st.markdown("""
     img {
         pointer-events: none;
         -webkit-user-drag: none;
-        -khtml-user-drag: none;
-        -moz-user-drag: none;
-        -o-user-drag: none;
         user-drag: none;
         user-select: none;
     }
@@ -94,76 +85,52 @@ for category, tab in zip(categories, tabs):
     with tab:
         st.header(category)
         category_data = [item for item in data if item["category"] == category]
-        cols = st.columns(2)
 
-        for idx, item in enumerate(category_data):
-            col = cols[idx % 2]
-            with col:
-                folder_path = item["folder"]
-                image_files = [
-                    f for f in os.listdir(folder_path)
-                    if f.lower().endswith(('.jpg', '.jpeg', '.png')) and os.path.isfile(os.path.join(folder_path, f))
-                ] if os.path.exists(folder_path) else []
+        for item in category_data:
+            st.subheader(f"{item['name']} ({item['age']}, {item['profession']})")
 
-                if image_files:
-                    current_index = st.session_state.image_indices.get(item["folder"], 0) % len(image_files)
-                    image_path = os.path.join(folder_path, image_files[current_index])
+            folder_path = item["folder"]
+            image_files = [
+                f for f in os.listdir(folder_path)
+                if f.lower().endswith(('.jpg', '.jpeg', '.png')) and os.path.isfile(os.path.join(folder_path, f))
+            ] if os.path.exists(folder_path) else []
 
-                    # "View" button -> larger image in full width
-                    if st.button(f"🔍 View {item['name']}", key=f"view_{item['folder']}_{idx}"):
-                        st.image(
-                            image_path,
-                            caption=f"{item['name']} ({item['age']}, {item['profession']})",
-                            use_container_width=True
-                        )
+            if image_files:
+                cols = st.columns(3)  # show 3 images per row
+                for idx, image_file in enumerate(image_files):
+                    image_path = os.path.join(folder_path, image_file)
+                    with cols[idx % 3]:
+                        st.markdown('<div class="image-container">', unsafe_allow_html=True)
+                        st.image(image_path, use_container_width=True)
+                        st.markdown('</div>', unsafe_allow_html=True)
+            else:
+                st.warning(f"No images found in {folder_path}")
 
-                    # Normal display (smaller image with protection)
-                    st.markdown('<div class="image-container">', unsafe_allow_html=True)
-                    st.image(
-                        image_path,
-                        caption=f"{item['name']} ({item['age']}, {item['profession']})",
-                        width=300
-                    )
-                    st.markdown('</div>', unsafe_allow_html=True)
+            # -------------------------------
+            # Survey form
+            # -------------------------------
+            with st.expander(f"📝 Survey for {item['name']}"):
+                with st.form(key=f"survey_form_{item['folder']}"):
+                    rating = st.slider("Rating (1-5)", 1, 5, 3, key=f"rating_{item['folder']}")
+                    feedback = st.text_area("Feedback", key=f"feedback_{item['folder']}")
+                    if st.form_submit_button("Submit"):
+                        timestamp = datetime.now().isoformat()
+                        survey_entry = {"rating": rating, "feedback": feedback, "timestamp": timestamp}
+                        survey_data.setdefault(item["folder"], []).append(survey_entry)
+                        save_survey_data(survey_data)
+                        st.success("✅ Response recorded")
+                        st.rerun()
 
-                    # Navigation buttons
-                    nav_prev, nav_next = st.columns([1, 1])
-                    with nav_prev:
-                        if st.button("⬅️ Prev", key=f"prev_{item['folder']}"):
-                            st.session_state.image_indices[item["folder"]] = (current_index - 1) % len(image_files)
+            # -------------------------------
+            # Display saved survey data
+            # -------------------------------
+            if item["folder"] in survey_data and survey_data[item["folder"]]:
+                st.subheader(f"💬 Survey Responses for {item['name']}")
+                for entry in survey_data[item["folder"]]:
+                    with st.expander(f"{entry['timestamp']}"):
+                        st.write(f"⭐ {entry['rating']} — {entry['feedback']}")
+                        if st.button("🗑️ Delete", key=f"delete_{item['folder']}_{entry['timestamp']}"):
+                            delete_survey_entry(item["folder"], entry["timestamp"])
                             st.rerun()
-                    with nav_next:
-                        if st.button("➡️ Next", key=f"next_{item['folder']}"):
-                            st.session_state.image_indices[item["folder"]] = (current_index + 1) % len(image_files)
-                            st.rerun()
-                else:
-                    st.warning(f"No images found in {folder_path}")
-
-                # -------------------------------
-                # Survey form
-                # -------------------------------
-                with st.expander(f"📝 Survey for {item['name']}"):
-                    with st.form(key=f"survey_form_{item['folder']}_{idx}"):
-                        rating = st.slider("Rating (1-5)", 1, 5, 3, key=f"rating_{item['folder']}_{idx}")
-                        feedback = st.text_area("Feedback", key=f"feedback_{item['folder']}_{idx}")
-                        if st.form_submit_button("Submit"):
-                            timestamp = datetime.now().isoformat()
-                            survey_entry = {"rating": rating, "feedback": feedback, "timestamp": timestamp}
-                            survey_data.setdefault(item["folder"], []).append(survey_entry)
-                            save_survey_data(survey_data)
-                            st.success("✅ Response recorded")
-                            st.rerun()
-
-                # -------------------------------
-                # Display saved survey data
-                # -------------------------------
-                if item["folder"] in survey_data and survey_data[item["folder"]]:
-                    st.subheader(f"💬 Survey Responses for {item['name']}")
-                    for entry in survey_data[item["folder"]]:
-                        with st.expander(f"{entry['timestamp']}"):
-                            st.write(f"⭐ {entry['rating']} — {entry['feedback']}")
-                            if st.button("🗑️ Delete", key=f"delete_{item['folder']}_{entry['timestamp']}"):
-                                delete_survey_entry(item["folder"], entry["timestamp"])
-                                st.rerun()
-                else:
-                    st.caption("No survey responses yet.")
+            else:
+                st.caption("No survey responses yet.")
