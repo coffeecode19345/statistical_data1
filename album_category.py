@@ -9,8 +9,8 @@ from datetime import datetime
 data = [
     {"name": "Xiaojing", "age": 26, "profession": "Graphic Designer", "category": "Artists", "folder": "xiaojing"},
     {"name": "Yuena", "age": 29, "profession": "Painter", "category": "Artists", "folder": "yuena"},
-    {"name": "Chunyang", "age": 32, "profession": "Software Developer", "category": "Engineers", "folder": "chunyang"},
-    {"name": "Yu", "age": 27, "profession": "Data Scientist", "category": "Engineers", "folder": "yu"},
+    {"name": "Chunyang", "age": 15, "profession": "Software Developer", "category": "Engineers", "folder": "chunyang"},
+    {"name": "Yu", "age": 47, "profession": "Data Scientist", "category": "Engineers", "folder": "yu"},
     {"name": "Yijie", "age": 30, "profession": "Literature Teacher", "category": "Teachers", "folder": "yijie"},
     {"name": "Haoran", "age": 34, "profession": "History Teacher", "category": "Teachers", "folder": "haoran"}
 ]
