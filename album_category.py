@@ -1,7 +1,7 @@
 import streamlit as st
 import os
 
-# Updated data for the six ladies
+# Data for the six ladies
 data = [
     {"name": "Xiaojing", "age": 26, "profession": "Graphic Designer", "category": "Artists", "folder": "xiaojing"},
     {"name": "Yuena", "age": 29, "profession": "Painter", "category": "Artists", "folder": "yuena"},
@@ -29,12 +29,20 @@ for tab_idx, (category, tab) in enumerate(zip(categories, tabs)):
         for idx, item in enumerate(category_data):
             col = cols[idx % 2]  # Alternate between columns
             with col:
-                # Construct image path
-                image_path = os.path.join(item["folder"], "profile.jpg")
-                if os.path.exists(image_path):
-                    st.image(image_path, caption=f"{item['name']} ({item['age']}, {item['profession']})", width=150)
+                # Find the first image in the folder
+                folder_path = item["folder"]
+                image_files = [
+                    f for f in os.listdir(folder_path)
+                    if f.lower().endswith(('.jpg', '.jpeg', '.png')) and os.path.isfile(os.path.join(folder_path, f))
+                ] if os.path.exists(folder_path) else []
+                if image_files:
+                    image_path = os.path.join(folder_path, image_files[0])
+                    try:
+                        st.image(image_path, caption=f"{item['name']} ({item['age']}, {item['profession']})", width=150)
+                    except Exception as e:
+                        st.warning(f"Failed to load image from {image_path}: {str(e)}")
                 else:
-                    st.warning(f"Image not found: {image_path}")
+                    st.warning(f"No image found in folder: {folder_path}")
                 # Survey button and form
                 button_label = f"Survey for {item['name']}"
                 if st.button(button_label, key=f"survey_{item['folder']}_{idx}"):
