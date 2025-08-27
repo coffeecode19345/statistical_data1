@@ -20,6 +20,8 @@ data = [
 # -------------------------------
 if "image_indices" not in st.session_state:
     st.session_state.image_indices = {item["folder"]: 0 for item in data}
+if "fullscreen" not in st.session_state:
+    st.session_state.fullscreen = {item["folder"]: False for item in data}
 
 SURVEY_FILE = "survey_data.json"
 
@@ -100,15 +102,23 @@ for category, tab in zip(categories, tabs):
                     image_path = os.path.join(folder_path, image_files[current_index])
 
                     # -------------------------------
-                    # Modal gallery view (all images large)
+                    # Fullscreen viewer (session_state instead of modal)
                     # -------------------------------
                     if st.button(f"🔍 View {item['name']}", key=f"view_{item['folder']}_{idx}"):
-                        with st.modal(f"{item['name']} - Gallery"):
-                            st.image(
-                                [os.path.join(folder_path, f) for f in image_files],
-                                caption=[f"{item['name']} - {f}" for f in image_files],
-                                use_container_width=True
-                            )
+                        st.session_state.fullscreen[item["folder"]] = True
+                        st.rerun()
+
+                    # Show fullscreen images if toggled
+                    if st.session_state.fullscreen.get(item["folder"], False):
+                        st.subheader(f"Fullscreen view: {item['name']}")
+                        st.image(
+                            [os.path.join(folder_path, f) for f in image_files],
+                            caption=[f"{item['name']} - {f}" for f in image_files],
+                            use_container_width=True
+                        )
+                        if st.button("❌ Close", key=f"close_{item['folder']}"):
+                            st.session_state.fullscreen[item["folder"]] = False
+                            st.rerun()
 
                     # -------------------------------
                     # Normal thumbnail display
