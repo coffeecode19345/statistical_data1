@@ -1,14 +1,14 @@
 import streamlit as st
 import os
 
-# Sample data for the photo gallery
+# Updated data for the six ladies
 data = [
-    {"name": "Alice Smith", "age": 28, "profession": "Painter", "category": "Artists", "folder": "Alice"},
-    {"name": "Bob Jones", "age": 34, "profession": "Sculptor", "category": "Artists", "folder": "Bob"},
-    {"name": "Clara Lee", "age": 25, "profession": "Photographer", "category": "Artists", "folder": "Clara"},
-    {"name": "Emma Brown", "age": 30, "profession": "Software Engineer", "category": "Engineers", "folder": "Emma"},
-    {"name": "Frank Wilson", "age": 35, "profession": "Mechanical Engineer", "category": "Engineers", "folder": "Frank"},
-    {"name": "Hannah Lee", "age": 45, "profession": "Math Teacher", "category": "Teachers", "folder": "Hannah"}
+    {"name": "Xiaojing", "age": 26, "profession": "Graphic Designer", "category": "Artists", "folder": "xiaojing"},
+    {"name": "Yuena", "age": 29, "profession": "Painter", "category": "Artists", "folder": "yuena"},
+    {"name": "Chunyang", "age": 32, "profession": "Software Developer", "category": "Engineers", "folder": "chunyang"},
+    {"name": "Yu", "age": 27, "profession": "Data Scientist", "category": "Engineers", "folder": "yu"},
+    {"name": "Yijie", "age": 30, "profession": "Literature Teacher", "category": "Teachers", "folder": "yijie"},
+    {"name": "Haoran", "age": 34, "profession": "History Teacher", "category": "Teachers", "folder": "haoran"}
 ]
 
 # Streamlit app
@@ -36,7 +36,7 @@ for tab_idx, (category, tab) in enumerate(zip(categories, tabs)):
                 else:
                     st.warning(f"Image not found: {image_path}")
                 # Survey button and form
-                button_label = f"Survey for Tab {tab_idx + 1}"
+                button_label = f"Survey for {item['name']}"
                 if st.button(button_label, key=f"survey_{item['folder']}_{idx}"):
                     with st.form(key=f"survey_form_{item['folder']}_{idx}"):
                         st.write(f"Rate {item['name']}'s profile:")
