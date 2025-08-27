@@ -11,6 +11,10 @@ data = [
     {"name": "Haoran", "age": 34, "profession": "History Teacher", "category": "Teachers", "folder": "haoran"}
 ]
 
+# Initialize session state for image indices
+if 'image_indices' not in st.session_state:
+    st.session_state.image_indices = {item["folder"]: 0 for item in data}
+
 # Streamlit app
 st.title("Photo Gallery")
 
@@ -29,20 +33,26 @@ for tab_idx, (category, tab) in enumerate(zip(categories, tabs)):
         for idx, item in enumerate(category_data):
             col = cols[idx % 2]  # Alternate between columns
             with col:
-                # Find the first image in the folder
+                # Find all images in the folder
                 folder_path = item["folder"]
                 image_files = [
                     f for f in os.listdir(folder_path)
                     if f.lower().endswith(('.jpg', '.jpeg', '.png')) and os.path.isfile(os.path.join(folder_path, f))
                 ] if os.path.exists(folder_path) else []
+                
                 if image_files:
-                    image_path = os.path.join(folder_path, image_files[0])
+                    # Get current image index for this folder
+                    current_index = st.session_state.image_indices.get(item["folder"], 0)
+                    # Ensure index is within bounds
+                    current_index = current_index % len(image_files)
+                    image_path = os.path.join(folder_path, image_files[current_index])
                     try:
-                        st.image(image_path, caption=f"{item['name']} ({item['age']}, {item['profession']})", width=150)
+                        st.image(image_path, caption=f"{item['name']} ({item['age']}, {item['profession']})", width=300)
                     except Exception as e:
                         st.warning(f"Failed to load image from {image_path}: {str(e)}")
                 else:
                     st.warning(f"No image found in folder: {folder_path}")
+                
                 # Survey button and form
                 button_label = f"Survey for {item['name']}"
                 if st.button(button_label, key=f"survey_{item['folder']}_{idx}"):
@@ -52,3 +62,8 @@ for tab_idx, (category, tab) in enumerate(zip(categories, tabs)):
                         feedback = st.text_area("Feedback", key=f"feedback_{item['folder']}_{idx}")
                         if st.form_submit_button("Submit"):
                             st.success(f"Thank you for rating {item['name']} with {rating} stars! Feedback: {feedback}")
+                            # Increment image index for this folder
+                            if image_files:
+                                st.session_state.image_indices[item["folder"]] = (current_index + 1) % len(image_files)
+                            # Rerun to update the displayed image
+                            st.rerun()
