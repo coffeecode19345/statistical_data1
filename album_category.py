@@ -4,7 +4,7 @@ import pandas as pd
 # Sample data for the photo gallery
 data = {
     "Artists": [
-        {"name": "Alice Smith", "age": 28, "profession": "Painter", "image": "https://via.placeholder.com/150?text=Alice"},
+        {"name": "Xiaojing Zuo", "age": 34, "profession": "Software Engineer", "x2.jpg": "https://via.placeholder.com/150?text=XZ"},
         {"name": "Bob Jones", "age": 34, "profession": "Sculptor", "image": "https://via.placeholder.com/150?text=Bob"},
         {"name": "Clara Lee", "age": 25, "profession": "Photographer", "image": "https://via.placeholder.com/150?text=Clara"},
         {"name": "David Kim", "age": 40, "profession": "Illustrator", "image": "https://via.placeholder.com/150?text=David"}
