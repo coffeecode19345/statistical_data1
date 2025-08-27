@@ -1,50 +1,46 @@
 import streamlit as st
-import pandas as pd
+import os
 
 # Sample data for the photo gallery
-data = {
-    "Artists": [
-        {"name": "Xiaojing Zuo", "age": 34, "profession": "Software Engineer", "x2.jpg": "https://via.placeholder.com/150?text=XZ"},
-        {"name": "Bob Jones", "age": 34, "profession": "Sculptor", "image": "https://via.placeholder.com/150?text=Bob"},
-        {"name": "Clara Lee", "age": 25, "profession": "Photographer", "image": "https://via.placeholder.com/150?text=Clara"},
-        {"name": "David Kim", "age": 40, "profession": "Illustrator", "image": "https://via.placeholder.com/150?text=David"}
-    ],
-    "Engineers": [
-        {"name": "Emma Brown", "age": 30, "profession": "Software Engineer", "image": "https://via.placeholder.com/150?text=Emma"},
-        {"name": "Frank Wilson", "age": 35, "profession": "Mechanical Engineer", "image": "https://via.placeholder.com/150?text=Frank"},
-        {"name": "Grace Chen", "age": 29, "profession": "Civil Engineer", "image": "https://via.placeholder.com/150?text=Grace"}
-    ],
-    "Teachers": [
-        {"name": "Hannah Lee", "age": 45, "profession": "Math Teacher", "image": "https://via.placeholder.com/150?text=Hannah"},
-        {"name": "Ian Moore", "age": 38, "profession": "History Teacher", "image": "https://via.placeholder.com/150?text=Ian"}
-    ]
-}
+data = [
+    {"name": "Alice Smith", "age": 28, "profession": "Painter", "category": "Artists", "folder": "Alice"},
+    {"name": "Bob Jones", "age": 34, "profession": "Sculptor", "category": "Artists", "folder": "Bob"},
+    {"name": "Clara Lee", "age": 25, "profession": "Photographer", "category": "Artists", "folder": "Clara"},
+    {"name": "Emma Brown", "age": 30, "profession": "Software Engineer", "category": "Engineers", "folder": "Emma"},
+    {"name": "Frank Wilson", "age": 35, "profession": "Mechanical Engineer", "category": "Engineers", "folder": "Frank"},
+    {"name": "Hannah Lee", "age": 45, "profession": "Math Teacher", "category": "Teachers", "folder": "Hannah"}
+]
 
 # Streamlit app
-st.title("Photo Gallery with Survey")
+st.title("Photo Gallery")
 
-# Create tabs for each category
-tab_names = list(data.keys())
-tabs = st.tabs(tab_names)
+# Get unique categories
+categories = sorted(set(item["category"] for item in data))
+tabs = st.tabs(categories)
 
 # Iterate through tabs
-for tab_idx, (tab_name, tab) in enumerate(zip(tab_names, tabs)):
+for tab_idx, (category, tab) in enumerate(zip(categories, tabs)):
     with tab:
-        st.header(tab_name)
-        # Create a grid of 2 columns
+        st.header(category)
+        # Filter data for this category
+        category_data = [item for item in data if item["category"] == category]
+        # Create a 2-column grid
         cols = st.columns(2)
-        for idx, item in enumerate(data[tab_name]):
+        for idx, item in enumerate(category_data):
             col = cols[idx % 2]  # Alternate between columns
             with col:
-                # Display image
-                st.image(item["image"], caption=f"{item['name']} ({item['age']}, {item['profession']})", width=150)
+                # Construct image path
+                image_path = os.path.join(item["folder"], "profile.jpg")
+                if os.path.exists(image_path):
+                    st.image(image_path, caption=f"{item['name']} ({item['age']}, {item['profession']})", width=150)
+                else:
+                    st.warning(f"Image not found: {image_path}")
                 # Survey button and form
                 button_label = f"Survey for Tab {tab_idx + 1}"
-                if st.button(button_label, key=f"survey_{tab_name}_{idx}"):
-                    with st.form(key=f"survey_form_{tab_name}_{idx}"):
+                if st.button(button_label, key=f"survey_{item['folder']}_{idx}"):
+                    with st.form(key=f"survey_form_{item['folder']}_{idx}"):
                         st.write(f"Rate {item['name']}'s profile:")
-                        rating = st.slider("Rating (1-5 stars)", 1, 5, 3, key=f"rating_{tab_name}_{idx}")
-                        feedback = st.text_area("Feedback", key=f"feedback_{tab_name}_{idx}")
-                        submit = st.form_submit_button("Submit Survey")
-                        if submit:
+                        rating = st.slider("Rating (1-5)", 1, 5, 3, key=f"rating_{item['folder']}_{idx}")
+                        feedback = st.text_area("Feedback", key=f"feedback_{item['folder']}_{idx}")
+                        if st.form_submit_button("Submit"):
                             st.success(f"Thank you for rating {item['name']} with {rating} stars! Feedback: {feedback}")
