@@ -217,7 +217,7 @@ with st.sidebar:
 
         st.subheader("Upload Images")
         data = load_folders()
-        folder_choice = st.selectbox("Select Folder", [item["folder"] for item in data])
+        folder_choice = st.selectbox("Select Folder", [item["folder"] for item in data], key="upload_folder")
         download_allowed = st.checkbox("Allow Downloads for New Images", value=True)
         uploaded_files = st.file_uploader("Upload Images", accept_multiple_files=True, type=['jpg', 'jpeg', 'png'])
         if uploaded_files and folder_choice:
@@ -226,19 +226,26 @@ with st.sidebar:
             st.rerun()
 
         st.subheader("Manage Download Permissions")
-        folder_choice = st.selectbox("Select Folder for Download Settings", [item["folder"] for item in data], key="download_folder")
-        images = get_images(folder_choice)
-        if images:
-            st.write("Toggle Download Permissions:")
-            for img_dict in images:
-                toggle_key = f"download_toggle_{folder_choice}_{img_dict['name']}"
-                current_state = st.checkbox(f"Allow download for {img_dict['name'][:8]}...{img_dict['name'][-4:]}", 
-                                          value=img_dict["download"], 
-                                          key=toggle_key)
-                if current_state != img_dict["download"]:
-                    update_download_permission(folder_choice, img_dict["name"], current_state)
-                    st.success(f"Download permission updated for {img_dict['name'][:8]}...{img_dict['name'][-4:]}")
-                    st.rerun()
+        with st.container(key="download_permissions_container"):
+            folder_choice = st.selectbox("Select Folder for Download Settings", [item["folder"] for item in data], key=f"download_folder_{uuid.uuid4()}")
+            images = get_images(folder_choice)
+            if images:
+                with st.form(key=f"download_permissions_form_{folder_choice}"):
+                    st.write("Toggle Download Permissions:")
+                    download_states = {}
+                    for img_dict in images:
+                        toggle_key = f"download_toggle_{folder_choice}_{img_dict['name']}"
+                        download_states[img_dict['name']] = st.checkbox(
+                            f"Allow download for {img_dict['name'][:8]}...{img_dict['name'][-4:]}",
+                            value=img_dict["download"],
+                            key=toggle_key
+                        )
+                    if st.form_submit_button("Apply Download Permissions"):
+                        for img_dict in images:
+                            if download_states[img_dict['name']] != img_dict["download"]:
+                                update_download_permission(folder_choice, img_dict["name"], download_states[img_dict['name']])
+                        st.success("Download permissions updated!")
+                        st.rerun()
 
 # -------------------------------
 # CSS for Improved GUI
@@ -361,7 +368,6 @@ if st.session_state.zoom_folder is None:
                                     st.rerun()
                                 st.image(img_dict["image"], use_container_width=True, output_format="JPEG")
                                 st.markdown('</div>', unsafe_allow_html=True)
-
                     else:
                         st.warning(f"No images found for {f['folder']} in database")
 
