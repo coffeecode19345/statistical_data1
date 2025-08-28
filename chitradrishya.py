@@ -32,13 +32,13 @@ def init_db():
             category TEXT NOT NULL
         )
     """)
-    # Create images table with download_allowed column
+    # Create images table with corrected syntax
     c.execute("""
         CREATE TABLE IF NOT EXISTS images (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             name TEXT NOT NULL,
             folder TEXT NOT NULL,
-            image_data BLOB NOT NOT NULL,
+            image_data BLOB NOT NULL,
             download_allowed BOOLEAN NOT NULL DEFAULT 1,
             FOREIGN KEY (folder) REFERENCES folders (folder)
         )
