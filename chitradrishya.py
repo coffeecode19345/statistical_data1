@@ -56,7 +56,7 @@ def init_db():
         {"name": "Yijie", "age": 30, "profession": "Literature Teacher", "category": "Teachers", "folder": "yijie"},
         {"name": "Yajie", "age": 27, "profession": "Musician", "category": "Artists", "folder": "yajie"},
         {"name": "Yu", "age": 47, "profession": "Data Scientist", "category": "Engineers", "folder": "yu"},
-        {"name": "Chunyang", "age": 15, "profession": "Software Developer", "category": "Engineers", "folder": "chunyang"},
+        {"name": "Chunyang", "age": 25, "profession": "Software Developer", "category": "Engineers", "folder": "chunyang"},
         {"name": "Haoran", "age": 34, "profession": "History Teacher", "category": "Teachers", "folder": "haoran"},
     ]
     for folder_data in default_folders:
