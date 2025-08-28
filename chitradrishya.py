@@ -1,10 +1,11 @@
 import streamlit as st
 import sqlite3
+import os
+from datetime import datetime
 import io
 from PIL import Image
 import uuid
 import mimetypes
-from datetime import datetime
 import base64
 
 # -------------------------------
@@ -281,7 +282,8 @@ st.markdown("""
         max-height: 150px;
         object-fit: cover;
         border-radius: 4px;
-        border: 1px solid #ddd;
+        border: 2px solid #ddd;
+        box-shadow: 2px 2px 4px rgba(0, 0, 0, 0.1);
         cursor: pointer;
         transition: border-color 0.2s;
     }
@@ -302,6 +304,7 @@ st.markdown("""
         max-height: 500px;
         object-fit: contain;
         border-radius: 4px;
+        border: 2px solid #333;
     }
     .nav-button {
         background: rgba(0, 0, 0, 0.5);
@@ -322,17 +325,22 @@ st.markdown("""
         user-drag: none;
         user-select: none;
     }
+    body {
+        -webkit-user-select: none;
+        -ms-user-select: none;
+        user-select: none;
+    }
     </style>
 """, unsafe_allow_html=True)
 
 # -------------------------------
 # App UI
 # -------------------------------
-st.title("📸 Interactive Photo Gallery")
+st.title("📸 Interactive Photo Gallery & Survey")
 
 data = load_folders()
 survey_data = load_survey_data()
-categories = sorted(set(f["category"] for f in data))
+categories = sorted(set(item["category"] for item in data))
 tabs = st.tabs(categories)
 
 # -------------------------------
@@ -341,47 +349,48 @@ tabs = st.tabs(categories)
 for category, tab in zip(categories, tabs):
     with tab:
         st.header(category)
-        category_folders = [f for f in data if f["category"] == category]
+        category_data = [item for item in data if item["category"] == category]
 
-        for f in category_folders:
+        for item in category_data:
             with st.container():
-                st.markdown(f'<div class="folder-card"><div class="folder-header">{f["name"]} ({f["age"]}, {f["profession"]})</div>', unsafe_allow_html=True)
-                images = get_images_from_db(f["folder"])
+                st.markdown(f'<div class="folder-card"><div class="folder-header">{item["name"]} ({item["age"]}, {item["profession"]})</div>', unsafe_allow_html=True)
+                images = get_images_from_db(item["folder"])
                 if not images:
-                    st.warning("No images in this folder.")
+                    st.warning(f"No images found for {item['folder']} in database")
                     st.markdown('</div>', unsafe_allow_html=True)
                     continue
 
                 # Display images as clickable grid
-                cols = st.columns(min(len(images), 4))
+                cols = st.columns(4)  # 4 images per row
                 for idx, (name, img, img_data, download_allowed, base64_image) in enumerate(images):
                     with cols[idx % 4]:
-                        if st.button("", key=f"zoom_{f['folder']}_{idx}", help=f"View {name[:8]}...{name[-4:]}"):
-                            st.session_state.zoom_folder = f["folder"]
+                        st.markdown('<div class="image-grid">', unsafe_allow_html=True)
+                        if st.button("", key=f"zoom_{item['folder']}_{idx}", help=f"View {name[:8]}...{name[-4:]}"):
+                            st.session_state.zoom_folder = item["folder"]
                             st.session_state.zoom_index = idx
-                            st.rerun()
                         st.image(img, use_container_width=True, clamp=True)
+                        st.markdown('</div>', unsafe_allow_html=True)
 
                 # Survey form
-                with st.expander(f"📝 Survey for {f['name']}"):
-                    with st.form(key=f"survey_form_{f['folder']}"):
-                        rating = st.slider("Rating (1-5)", 1, 5, 3, key=f"rating_{f['folder']}")
-                        feedback = st.text_area("Feedback", key=f"feedback_{f['folder']}")
+                with st.expander(f"📝 Survey for {item['name']}"):
+                    with st.form(key=f"survey_form_{item['folder']}"):
+                        rating = st.slider("Rating (1-5)", 1, 5, 3, key=f"rating_{item['folder']}")
+                        feedback = st.text_area("Feedback", key=f"feedback_{item['folder']}")
                         if st.form_submit_button("Submit"):
                             timestamp = datetime.now().isoformat()
-                            save_survey_data(f["folder"], rating, feedback, timestamp)
+                            save_survey_data(item["folder"], rating, feedback, timestamp)
                             st.success("✅ Response recorded")
                             st.rerun()
 
                 # Display survey responses
-                if f["folder"] in survey_data and survey_data[f["folder"]]:
-                    st.subheader(f"💬 Survey Responses for {f['name']}")
-                    for entry in survey_data[f["folder"]]:
+                if item["folder"] in survey_data and survey_data[item["folder"]]:
+                    st.subheader(f"💬 Survey Responses for {item['name']}")
+                    for entry in survey_data[item["folder"]]:
                         with st.expander(f"{entry['timestamp']}"):
                             st.write(f"⭐ {entry['rating']} — {entry['feedback']}")
                             if st.session_state.is_author:
-                                if st.button("🗑️ Delete", key=f"delete_survey_{f['folder']}_{entry['timestamp']}"):
-                                    delete_survey_entry(f["folder"], entry["timestamp"])
+                                if st.button("🗑️ Delete", key=f"delete_survey_{item['folder']}_{entry['timestamp']}"):
+                                    delete_survey_entry(item["folder"], entry["timestamp"])
                                     st.rerun()
                 else:
                     st.caption("No survey responses yet.")
