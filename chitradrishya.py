@@ -274,6 +274,7 @@ categories = sorted(set(item["category"] for item in data))
 tabs = st.tabs(categories)
 
 # Grid view
+# Grid view
 if st.session_state.zoom_folder is None:
     for cat, tab in zip(categories, tabs):
         with tab:
@@ -319,14 +320,22 @@ if st.session_state.zoom_folder is None:
                         avg_rating = sum(ratings) / len(ratings)
                         st.markdown(f"**Average Rating:** ⭐ {avg_rating:.1f} ({len(ratings)} reviews)")
 
-                        # List each past response
+                        # List each past response with optional delete button
                         for entry in survey_data[f["folder"]]:
-                            rating_display = "⭐" * entry["rating"]
-                            st.markdown(
-                                f"- {rating_display} — {entry['feedback']}  \n"
-                                f"<sub>🕒 {entry['timestamp']}</sub>",
-                                unsafe_allow_html=True
-                            )
+                            cols = st.columns([6, 1])  # feedback + delete button
+                            with cols[0]:
+                                rating_display = "⭐" * entry["rating"]
+                                st.markdown(
+                                    f"- {rating_display} — {entry['feedback']}  \n"
+                                    f"<sub>🕒 {entry['timestamp']}</sub>",
+                                    unsafe_allow_html=True
+                                )
+                            if st.session_state.is_author:
+                                with cols[1]:
+                                    if st.button("🗑️", key=f"delete_survey_{f['folder']}_{entry['timestamp']}"):
+                                        delete_survey_entry(f["folder"], entry["timestamp"])
+                                        st.success("Deleted comment.")
+                                        st.rerun()
                     else:
                         st.info("No feedback yet — be the first to leave a comment!")
 
