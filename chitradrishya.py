@@ -195,7 +195,7 @@ with st.sidebar:
     if st.session_state.is_author and st.button("Logout"):
         st.session_state.is_author = False
         st.success("Logged out")
-        st.experimental_rerun()
+        st.rerun()
 
     if st.session_state.is_author:
         st.subheader("Manage Folders & Images")
@@ -211,7 +211,7 @@ with st.sidebar:
                 if new_folder and new_name and new_profession and new_category:
                     if add_folder(new_folder.lower(), new_name, new_age, new_profession, new_category):
                         st.success(f"Folder '{new_folder}' added successfully!")
-                        st.experimental_rerun()
+                        st.rerun()
                     else:
                         st.error(f"Folder '{new_folder}' already exists or invalid input.")
                 else:
@@ -228,7 +228,7 @@ with st.sidebar:
         if st.button("Upload to DB") and uploaded_files:
             load_images_to_db(uploaded_files, folder_choice, download_allowed)
             st.success(f"{len(uploaded_files)} image(s) uploaded to '{folder_choice}'!")
-            st.experimental_rerun()
+            st.rerun()
 
         # Download Permissions
         folder_choice_perm = st.selectbox("Select Folder for Download Settings", [item["folder"] for item in data], key=f"download_folder_{uuid.uuid4()}")
@@ -249,7 +249,7 @@ with st.sidebar:
                         if download_states[img_dict['name']] != img_dict["download"]:
                             update_download_permission(folder_choice_perm, img_dict["name"], download_states[img_dict['name']])
                     st.success("Download permissions updated!")
-                    st.experimental_rerun()
+                    st.rerun()
 
 # -------------------------------
 # CSS Styling
@@ -288,7 +288,7 @@ if st.session_state.zoom_folder is None:
                             if st.button("🔍 View", key=f"view_{f['folder']}_{idx}"):
                                 st.session_state.zoom_folder = f["folder"]
                                 st.session_state.zoom_index = idx
-                                st.experimental_rerun()
+                                st.rerun()
                             st.image(img_dict["image"], use_container_width=True)
                 else:
                     st.warning(f"No images found for {f['folder']}")
@@ -301,7 +301,7 @@ if st.session_state.zoom_folder is None:
                             timestamp = datetime.now().isoformat()
                             save_survey_data(f["folder"], rating, feedback, timestamp)
                             st.success("✅ Response recorded")
-                            st.experimental_rerun()
+                            st.rerun()
 
 # Zoom view
 else:
@@ -320,11 +320,11 @@ else:
     with col1:
         if idx > 0 and st.button("◄ Previous", key=f"prev_{folder}"):
             st.session_state.zoom_index -=1
-            st.experimental_rerun()
+            st.rerun()
     with col3:
         if idx < len(images)-1 and st.button("Next ►", key=f"next_{folder}"):
             st.session_state.zoom_index +=1
-            st.experimental_rerun()
+            st.rerun()
 
     if img_dict["download"]:
         mime, _ = mimetypes.guess_type(img_dict["name"])
@@ -338,9 +338,9 @@ else:
             if len(get_images(folder))==0:
                 st.session_state.zoom_folder=None
                 st.session_state.zoom_index=0
-            st.experimental_rerun()
+            st.rerun()
 
     if st.button("⬅️ Back to Grid", key=f"back_{folder}"):
         st.session_state.zoom_folder=None
         st.session_state.zoom_index=0
-        st.experimental_rerun()
+        st.rerun()
