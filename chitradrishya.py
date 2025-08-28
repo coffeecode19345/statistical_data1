@@ -6,6 +6,14 @@ import io
 from PIL import Image
 import uuid
 import mimetypes
+import base64
+
+# -------------------------------
+# Helper Function for Base64 Conversion
+# -------------------------------
+def image_to_base64(image_data):
+    """Convert image data (bytes) to base64 string."""
+    return base64.b64encode(image_data).decode('utf-8')
 
 # -------------------------------
 # Database Setup
@@ -190,7 +198,8 @@ def get_images_from_db(folder):
         name, image_data, download_allowed = row
         try:
             image = Image.open(io.BytesIO(image_data))
-            images.append((name, image, image_data, download_allowed))
+            base64_image = image_to_base64(image_data)
+            images.append((name, image, image_data, download_allowed, base64_image))
         except Exception as e:
             st.error(f"Error loading image {name}: {str(e)}")
     conn.close()
@@ -357,7 +366,7 @@ if st.session_state.is_author:
     images = get_images_from_db(folder_choice)
     if images:
         st.sidebar.write("Toggle Download Permissions:")
-        for image_name, _, _, download_allowed in images:
+        for image_name, _, _, download_allowed, _ in images:
             toggle_key = f"download_toggle_{folder_choice}_{image_name}"
             current_state = st.sidebar.checkbox(f"Allow download for {image_name[:8]}...{image_name[-4:]}", 
                                               value=download_allowed, 
@@ -393,12 +402,13 @@ for category, tab in zip(categories, tabs):
                 st.markdown('<div class="portfolio-container">', unsafe_allow_html=True)
                 
                 # Main Image
-                image_name, image, image_data, download_allowed = images[current_index]
+                image_name, image, image_data, download_allowed, base64_image = images[current_index]
+                mime_type, _ = mimetypes.guess_type(image_name)
                 main_image_id = f"main_image_{item['folder']}"
                 st.markdown(
                     f"""
                     <div class="main-image-container">
-                        <img id="{main_image_id}" class="main-image" src="data:image/jpeg;base64,{image_data | st.image_to_base64}" onclick="toggleZoom('{main_image_id}')">
+                        <img id="{main_image_id}" class="main-image" src="data:{mime_type};base64,{base64_image}" onclick="toggleZoom('{main_image_id}')">
                         <button class="nav-button prev-button" onclick="setMainImage({max(0, current_index-1)}, '{item['folder']}')">&lt;</button>
                         <button class="nav-button next-button" onclick="setMainImage({min(len(images)-1, current_index+1)}, '{item['folder']}')">&gt;</button>
                     </div>
@@ -408,10 +418,9 @@ for category, tab in zip(categories, tabs):
 
                 # Thumbnails
                 st.markdown('<div class="thumbnail-container">', unsafe_allow_html=True)
-                for idx, (thumb_name, thumb_image, _, _) in enumerate(images):
-                    base64_thumb = thumb_image | st.image_to_base64
+                for idx, (thumb_name, thumb_image, _, _, base64_thumb) in enumerate(images):
                     st.markdown(
-                        f'<img class="thumbnail" src="data:image/jpeg;base64,{base64_thumb}" onclick="setMainImage({idx}, \'{item["folder"]}\')">',
+                        f'<img class="thumbnail" src="data:{mimetypes.guess_type(thumb_name)[0]};base64,{base64_thumb}" onclick="setMainImage({idx}, \'{item["folder"]}\')">',
                         unsafe_allow_html=True
                     )
                 st.markdown('</div>', unsafe_allow_html=True)
@@ -440,7 +449,6 @@ for category, tab in zip(categories, tabs):
                 # Download and Delete Buttons
                 extension = os.path.splitext(image_name)[1].lower()
                 download_filename = f"{uuid.uuid4()}{extension}"
-                mime_type, _ = mimetypes.guess_type(image_name)
                 if download_allowed:
                     if st.download_button(
                         label="⬇️ Download Image",
