@@ -265,7 +265,7 @@ if st.session_state.is_author:
         st.rerun()
 
 # -------------------------------
-# CSS and JavaScript for Portfolio
+# CSS for Portfolio
 # -------------------------------
 st.markdown("""
     <style>
@@ -312,21 +312,13 @@ st.markdown("""
         border-color: #333;
     }
     .nav-button {
-        position: absolute;
-        top: 50%;
-        transform: translateY(-50%);
         background: rgba(0, 0, 0, 0.5);
         color: white;
         border: none;
         padding: 10px;
         cursor: pointer;
         font-size: 24px;
-    }
-    .prev-button {
-        left: 10px;
-    }
-    .next-button {
-        right: 10px;
+        margin: 5px;
     }
     img {
         pointer-events: none;
@@ -339,10 +331,6 @@ st.markdown("""
     function toggleZoom(imageId) {
         const image = document.getElementById(imageId);
         image.classList.toggle('zoomed');
-    }
-    function setMainImage(index, folder) {
-        const event = new CustomEvent('setMainImage', { detail: { index: index, folder: folder } });
-        window.dispatchEvent(event);
     }
     </script>
 """, unsafe_allow_html=True)
@@ -404,47 +392,40 @@ for category, tab in zip(categories, tabs):
                 # Main Image
                 image_name, image, image_data, download_allowed, base64_image = images[current_index]
                 mime_type, _ = mimetypes.guess_type(image_name)
-                main_image_id = f"main_image_{item['folder']}"
+                main_image_id = f"main_image_{item['folder']}_{current_index}"
                 st.markdown(
                     f"""
                     <div class="main-image-container">
                         <img id="{main_image_id}" class="main-image" src="data:{mime_type};base64,{base64_image}" onclick="toggleZoom('{main_image_id}')">
-                        <button class="nav-button prev-button" onclick="setMainImage({max(0, current_index-1)}, '{item['folder']}')">&lt;</button>
-                        <button class="nav-button next-button" onclick="setMainImage({min(len(images)-1, current_index+1)}, '{item['folder']}')">&gt;</button>
                     </div>
                     """,
                     unsafe_allow_html=True
                 )
 
+                # Navigation Buttons
+                col1, col2, col3 = st.columns([1, 8, 1])
+                with col1:
+                    if st.button("◄", key=f"prev_{item['folder']}") and current_index > 0:
+                        st.session_state[f"current_image_{item['folder']}"] = current_index - 1
+                        st.rerun()
+                with col3:
+                    if st.button("►", key=f"next_{item['folder']}") and current_index < len(images) - 1:
+                        st.session_state[f"current_image_{item['folder']}"] = current_index + 1
+                        st.rerun()
+
                 # Thumbnails
-                st.markdown('<div class="thumbnail-container">', unsafe_allow_html=True)
+                st.markdown(f'<div class="thumbnail-container" key="thumb_container_{item["folder"]}">', unsafe_allow_html=True)
                 for idx, (thumb_name, thumb_image, _, _, base64_thumb) in enumerate(images):
+                    if st.button("", 
+                                 key=f"thumb_{item['folder']}_{idx}", 
+                                 help=f"Select image {thumb_name[:8]}...{thumb_name[-4:]}",
+                                 on_click=lambda idx=idx: st.session_state.__setitem__(f"current_image_{item['folder']}", idx)):
+                        st.rerun()
                     st.markdown(
-                        f'<img class="thumbnail" src="data:{mimetypes.guess_type(thumb_name)[0]};base64,{base64_thumb}" onclick="setMainImage({idx}, \'{item["folder"]}\')">',
+                        f'<img class="thumbnail" src="data:{mimetypes.guess_type(thumb_name)[0]};base64,{base64_thumb}">',
                         unsafe_allow_html=True
                     )
                 st.markdown('</div>', unsafe_allow_html=True)
-
-                # JavaScript to handle thumbnail clicks
-                st.markdown(
-                    f"""
-                    <script>
-                    window.addEventListener('setMainImage', function(e) {{
-                        const index = e.detail.index;
-                        const folder = e.detail.folder;
-                        // Streamlit script to update session state
-                        const script = `
-                            import streamlit as st
-                            st.session_state['current_image_${{folder}}'] = ${{index}}
-                            st.rerun()
-                        `;
-                        // Simulate Streamlit rerun
-                        window.parent.postMessage({{type: 'streamlit:setComponentValue', value: script}}, '*');
-                    }});
-                    </script>
-                    """,
-                    unsafe_allow_html=True
-                )
 
                 # Download and Delete Buttons
                 extension = os.path.splitext(image_name)[1].lower()
