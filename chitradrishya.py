@@ -52,11 +52,11 @@ def init_db():
     default_folders = [
         {"name": "Xiaojing", "age": 26, "profession": "Graphic Designer", "category": "Artists", "folder": "xiaojing"},
         {"name": "Yuena", "age": 29, "profession": "Painter", "category": "Artists", "folder": "yuena"},
-        {"name": "Chunyang", "age": 15, "profession": "Software Developer", "category": "Engineers", "folder": "chunyang"},
-        {"name": "Yu", "age": 47, "profession": "Data Scientist", "category": "Engineers", "folder": "yu"},
         {"name": "Yijie", "age": 30, "profession": "Literature Teacher", "category": "Teachers", "folder": "yijie"},
-        {"name": "Haoran", "age": 34, "profession": "History Teacher", "category": "Teachers", "folder": "haoran"},
         {"name": "Yajie", "age": 27, "profession": "Musician", "category": "Artists", "folder": "yajie"},
+        {"name": "Yu", "age": 47, "profession": "Data Scientist", "category": "Engineers", "folder": "yu"},
+        {"name": "Chunyang", "age": 15, "profession": "Software Developer", "category": "Engineers", "folder": "chunyang"},
+        {"name": "Haoran", "age": 34, "profession": "History Teacher", "category": "Teachers", "folder": "haoran"},
     ]
     for folder_data in default_folders:
         c.execute("SELECT COUNT(*) FROM folders WHERE folder = ?", (folder_data["folder"],))
@@ -99,8 +99,7 @@ def load_images_to_db(uploaded_files, folder, download_allowed=True):
     c = conn.cursor()
     for uploaded_file in uploaded_files:
         image_data = uploaded_file.read()
-        original_filename = uploaded_file.name
-        extension = os.path.splitext(original_filename)[1].lower()
+        extension = os.path.splitext(uploaded_file.name)[1].lower()
         random_filename = f"{uuid.uuid4()}{extension}"
         c.execute("SELECT COUNT(*) FROM images WHERE folder = ? AND name = ?", (folder, random_filename))
         if c.fetchone()[0] == 0:
@@ -195,6 +194,7 @@ with st.sidebar:
     if st.session_state.is_author and st.button("Logout"):
         st.session_state.is_author = False
         st.success("Logged out")
+        st.rerun()
 
     if st.session_state.is_author:
         st.title("Manage Folders and Images")
@@ -358,7 +358,7 @@ if st.session_state.zoom_folder is None:
                     st.markdown(f'<div class="folder-card"><div class="folder-header">{f["name"]} ({f["age"]}, {f["profession"]})</div>', unsafe_allow_html=True)
                     images = get_images(f["folder"])
                     if images:
-                        cols = st.columns(4)
+                        cols = st.columns(4)  # Changed to 4 columns as per earlier request
                         for idx, img_dict in enumerate(images):
                             with cols[idx % 4]:
                                 st.markdown('<div class="image-grid">', unsafe_allow_html=True)
