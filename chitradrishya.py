@@ -5,13 +5,12 @@ from PIL import Image
 import uuid
 import mimetypes
 from datetime import datetime
-import os
 
-# -------------------------------
-# DB and helper functions
-# -------------------------------
 DB_PATH = "gallery.db"
 
+# -------------------------------
+# DB Helpers
+# -------------------------------
 def init_db():
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
@@ -62,22 +61,20 @@ def delete_image(folder, name):
     conn.close()
 
 # -------------------------------
-# Initialize DB
+# Initialize DB & Session State
 # -------------------------------
 init_db()
-
-# -------------------------------
-# Session State
-# -------------------------------
 if "zoom_folder" not in st.session_state:
     st.session_state.zoom_folder = None
 if "zoom_index" not in st.session_state:
     st.session_state.zoom_index = 0
+if "clicked_image" not in st.session_state:
+    st.session_state.clicked_image = None
 if "is_author" not in st.session_state:
     st.session_state.is_author = False
 
 # -------------------------------
-# Author login
+# Author Login
 # -------------------------------
 with st.sidebar:
     st.title("Author Login")
@@ -101,7 +98,7 @@ folders = load_folders()
 categories = sorted(set(f["category"] for f in folders))
 
 # -------------------------------
-# Display grid of images (initial view)
+# Grid View
 # -------------------------------
 if st.session_state.zoom_folder is None:
     for cat in categories:
@@ -112,21 +109,23 @@ if st.session_state.zoom_folder is None:
             images = get_images(f["folder"])
             if images:
                 cols = st.columns(4)
+                clicked_idx = None
                 for idx, img_dict in enumerate(images):
                     col = cols[idx % 4]
                     with col:
-                        # Display rectangular grid image
                         st.image(img_dict["image"], use_container_width=True, output_format="JPEG")
-                        # Button to zoom
                         if st.button("🔍 View", key=f"view_{f['folder']}_{idx}"):
-                            st.session_state.zoom_folder = f["folder"]
-                            st.session_state.zoom_index = idx
-                            st.experimental_rerun()
+                            clicked_idx = idx
+                # After rendering all images, update session state once
+                if clicked_idx is not None:
+                    st.session_state.zoom_folder = f["folder"]
+                    st.session_state.zoom_index = clicked_idx
+                    st.experimental_rerun()
             else:
                 st.warning("No images in this folder.")
 
 # -------------------------------
-# Zoom / slider view
+# Slider / Zoom View
 # -------------------------------
 else:
     folder = st.session_state.zoom_folder
@@ -147,15 +146,14 @@ else:
             st.session_state.zoom_index += 1
             st.experimental_rerun()
 
-    # Admin / download controls
+    # Download/Delete
     if img_dict["download"]:
         mime, _ = mimetypes.guess_type(img_dict["name"])
         st.download_button("⬇️ Download", data=img_dict["data"], file_name=img_dict["name"], mime=mime)
     if st.session_state.is_author:
         if st.button("🗑️ Delete Image"):
             delete_image(folder, img_dict["name"])
-            st.success("Image deleted.")
-            # update zoom index
+            st.success("Deleted.")
             st.session_state.zoom_index = min(idx, len(images)-2)
             if len(get_images(folder)) == 0:
                 st.session_state.zoom_folder = None
