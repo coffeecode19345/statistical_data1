@@ -9,19 +9,17 @@ import mimetypes
 import base64
 
 # -------------------------------
-# Helper Function for Base64 Conversion
+# Helper: convert image to base64
 # -------------------------------
 def image_to_base64(image_data):
-    """Convert image data (bytes) to base64 string."""
     return base64.b64encode(image_data).decode('utf-8')
 
 # -------------------------------
-# Database Setup
+# Database initialization
 # -------------------------------
 def init_db():
     conn = sqlite3.connect("gallery.db")
     c = conn.cursor()
-    # Create folders table
     c.execute("""
         CREATE TABLE IF NOT EXISTS folders (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -32,7 +30,6 @@ def init_db():
             category TEXT NOT NULL
         )
     """)
-    # Create images table with download_allowed column
     c.execute("""
         CREATE TABLE IF NOT EXISTS images (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -43,7 +40,6 @@ def init_db():
             FOREIGN KEY (folder) REFERENCES folders (folder)
         )
     """)
-    # Create surveys table
     c.execute("""
         CREATE TABLE IF NOT EXISTS surveys (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -55,7 +51,7 @@ def init_db():
         )
     """)
     conn.commit()
-    # Initialize default folders if not present
+    
     default_folders = [
         {"name": "Xiaojing", "age": 26, "profession": "Graphic Designer", "category": "Artists", "folder": "xiaojing"},
         {"name": "Yuena", "age": 29, "profession": "Painter", "category": "Artists", "folder": "yuena"},
@@ -65,6 +61,7 @@ def init_db():
         {"name": "Haoran", "age": 34, "profession": "History Teacher", "category": "Teachers", "folder": "haoran"},
         {"name": "Yajie", "age": 27, "profession": "Musician", "category": "Artists", "folder": "yajie"},
     ]
+    
     for folder_data in default_folders:
         c.execute("SELECT COUNT(*) FROM folders WHERE folder = ?", (folder_data["folder"],))
         if c.fetchone()[0] == 0:
@@ -77,7 +74,7 @@ def init_db():
     conn.close()
 
 # -------------------------------
-# Load folders from database
+# Load folders
 # -------------------------------
 def load_folders():
     conn = sqlite3.connect("gallery.db")
@@ -89,69 +86,35 @@ def load_folders():
     return folders
 
 # -------------------------------
-# Add new folder to database
+# Load images
 # -------------------------------
-def add_folder(folder, name, age, profession, category):
-    try:
-        conn = sqlite3.connect("gallery.db")
-        c = conn.cursor()
-        c.execute("""
-            INSERT INTO folders (folder, name, age, profession, category)
-            VALUES (?, ?, ?, ?, ?)
-        """, (folder, name, age, profession, category))
-        conn.commit()
-        conn.close()
-        return True
-    except sqlite3.IntegrityError:
-        return False  # Folder already exists
-    except Exception as e:
-        st.error(f"Error adding folder: {str(e)}")
-        return False
-
-# -------------------------------
-# Load images into database with random filenames
-# -------------------------------
-def load_images_to_db(uploaded_files, folder, download_allowed=True):
+def get_images_from_db(folder):
     conn = sqlite3.connect("gallery.db")
     c = conn.cursor()
-    for uploaded_file in uploaded_files:
-        image_data = uploaded_file.read()
-        # Generate random filename with original extension
-        original_filename = uploaded_file.name
-        extension = os.path.splitext(original_filename)[1].lower()
-        random_filename = f"{uuid.uuid4()}{extension}"
-        # Check if image already exists to avoid duplicates
-        c.execute("SELECT COUNT(*) FROM images WHERE folder = ? AND name = ?", (folder, random_filename))
-        if c.fetchone()[0] == 0:
-            c.execute("INSERT INTO images (name, folder, image_data, download_allowed) VALUES (?, ?, ?, ?)",
-                      (random_filename, folder, image_data, download_allowed))
+    c.execute("SELECT name, image_data, download_allowed FROM images WHERE folder = ?", (folder,))
+    images = []
+    for row in c.fetchall():
+        name, image_data, download_allowed = row
+        try:
+            image = Image.open(io.BytesIO(image_data))
+            base64_image = image_to_base64(image_data)
+            images.append((name, image, image_data, download_allowed, base64_image))
+        except:
+            continue
+    conn.close()
+    return images
+
+# -------------------------------
+# Save survey
+# -------------------------------
+def save_survey_data(folder, rating, feedback, timestamp):
+    conn = sqlite3.connect("gallery.db")
+    c = conn.cursor()
+    c.execute("INSERT INTO surveys (folder, rating, feedback, timestamp) VALUES (?, ?, ?, ?)",
+              (folder, rating, feedback, timestamp))
     conn.commit()
     conn.close()
 
-# -------------------------------
-# Update download permission
-# -------------------------------
-def update_download_permission(folder, image_name, download_allowed):
-    conn = sqlite3.connect("gallery.db")
-    c = conn.cursor()
-    c.execute("UPDATE images SET download_allowed = ? WHERE folder = ? AND name = ?",
-              (download_allowed, folder, image_name))
-    conn.commit()
-    conn.close()
-
-# -------------------------------
-# Delete image from database
-# -------------------------------
-def delete_image(folder, image_name):
-    conn = sqlite3.connect("gallery.db")
-    c = conn.cursor()
-    c.execute("DELETE FROM images WHERE folder = ? AND name = ?", (folder, image_name))
-    conn.commit()
-    conn.close()
-
-# -------------------------------
-# Load survey data from database
-# -------------------------------
 def load_survey_data():
     conn = sqlite3.connect("gallery.db")
     c = conn.cursor()
@@ -166,158 +129,43 @@ def load_survey_data():
     return survey_data
 
 # -------------------------------
-# Save survey data to database
-# -------------------------------
-def save_survey_data(folder, rating, feedback, timestamp):
-    conn = sqlite3.connect("gallery.db")
-    c = conn.cursor()
-    c.execute("INSERT INTO surveys (folder, rating, feedback, timestamp) VALUES (?, ?, ?, ?)",
-              (folder, rating, feedback, timestamp))
-    conn.commit()
-    conn.close()
-
-# -------------------------------
-# Delete survey entry from database
-# -------------------------------
-def delete_survey_entry(folder, timestamp):
-    conn = sqlite3.connect("gallery.db")
-    c = conn.cursor()
-    c.execute("DELETE FROM surveys WHERE folder = ? AND timestamp = ?", (folder, timestamp))
-    conn.commit()
-    conn.close()
-
-# -------------------------------
-# Get images from database
-# -------------------------------
-def get_images_from_db(folder):
-    conn = sqlite3.connect("gallery.db")
-    c = conn.cursor()
-    c.execute("SELECT name, image_data, download_allowed FROM images WHERE folder = ?", (folder,))
-    images = []
-    for row in c.fetchall():
-        name, image_data, download_allowed = row
-        try:
-            image = Image.open(io.BytesIO(image_data))
-            base64_image = image_to_base64(image_data)
-            images.append((name, image, image_data, download_allowed, base64_image))
-        except Exception as e:
-            st.error(f"Error loading image {name}: {str(e)}")
-    conn.close()
-    return images
-
-# -------------------------------
-# Initialize database
+# Init DB
 # -------------------------------
 init_db()
 
 # -------------------------------
-# Author Authentication
-# -------------------------------
-if "is_author" not in st.session_state:
-    st.session_state.is_author = False
-
-st.sidebar.title("Author Login")
-with st.sidebar.form(key="auth_form"):
-    password = st.text_input("Enter Author Password", type="password")
-    if st.form_submit_button("Login"):
-        # Replace with your own password or integrate with a proper auth system
-        if password == "admin123":  # Hardcoded for demo; use secure auth in production
-            st.session_state.is_author = True
-            st.sidebar.success("Logged in as author!")
-        else:
-            st.sidebar.error("Incorrect password")
-
-if st.session_state.is_author:
-    if st.sidebar.button("Logout"):
-        st.session_state.is_author = False
-        st.rerun()
-
-# -------------------------------
-# Sidebar for Folder Creation and Image Upload
-# -------------------------------
-if st.session_state.is_author:
-    st.sidebar.title("Manage Folders and Images")
-    st.sidebar.subheader("Create New Folder")
-    with st.sidebar.form(key="add_folder_form"):
-        new_folder = st.text_input("Folder Name (e.g., 'newfolder')")
-        new_name = st.text_input("Person Name")
-        new_age = st.number_input("Age", min_value=1, max_value=150, step=1)
-        new_profession = st.text_input("Profession")
-        new_category = st.selectbox("Category", ["Artists", "Engineers", "Teachers"])
-        if st.form_submit_button("Add Folder"):
-            if new_folder and new_name and new_profession and new_category:
-                if add_folder(new_folder.lower(), new_name, new_age, new_profession, new_category):
-                    st.sidebar.success(f"Folder '{new_folder}' added successfully!")
-                    st.rerun()
-                else:
-                    st.sidebar.error(f"Folder '{new_folder}' already exists or invalid input.")
-            else:
-                st.sidebar.error("Please fill in all fields.")
-
-    st.sidebar.subheader("Upload Images")
-    data = load_folders()
-    folder_choice = st.sidebar.selectbox("Select Folder", [item["folder"] for item in data])
-    download_allowed = st.sidebar.checkbox("Allow Downloads for New Images", value=True)
-    uploaded_files = st.sidebar.file_uploader("Upload Images", accept_multiple_files=True, type=['jpg', 'jpeg', 'png'])
-    if uploaded_files and folder_choice:
-        load_images_to_db(uploaded_files, folder_choice, download_allowed)
-        st.sidebar.success(f"Images uploaded to {folder_choice} folder in database!")
-        st.rerun()
-
-# -------------------------------
-# CSS for Portfolio
+# CSS Styling + Prevent Download/Right-click
 # -------------------------------
 st.markdown("""
     <style>
-    .portfolio-container {
-        width: 100%;
-        max-width: 800px;
-        margin: 0 auto;
-    }
-    .main-image-container {
-        position: relative;
-        width: 100%;
-        max-height: 400px;
-        overflow: hidden;
-        border: 2px solid #333;
-        border-radius: 8px;
-        box-shadow: 3px 3px 8px rgba(0, 0, 0, 0.3);
-        margin-bottom: 10px;
-    }
     .main-image {
         width: 100%;
-        max-height: 400px;
+        max-height: 80vh;
         object-fit: contain;
+        border: 2px solid #333;
+        border-radius: 8px;
         cursor: pointer;
+        margin-bottom: 10px;
     }
     .thumbnail-container {
         display: flex;
         overflow-x: auto;
         gap: 10px;
-        padding: 10px 0;
+        padding: 5px 0;
     }
     .thumbnail {
-        width: 100px;
-        height: 100px;
+        width: 120px;
+        height: 120px;
         object-fit: cover;
-        border: 1px solid #ccc;
         border-radius: 4px;
         cursor: pointer;
+        border: 1px solid #ccc;
     }
     .thumbnail:hover {
         border-color: #333;
     }
-    .nav-button {
-        background: rgba(0, 0, 0, 0.5);
-        color: white;
-        border: none;
-        padding: 10px;
-        cursor: pointer;
-        font-size: 24px;
-        margin: 5px;
-    }
     img {
-        pointer-events: none; /* Prevent right-click and drag */
+        pointer-events: none;
         -webkit-user-drag: none;
         user-drag: none;
         user-select: none;
@@ -330,32 +178,13 @@ st.markdown("""
 # -------------------------------
 st.title("📸 Photo Gallery & Survey")
 
-data = load_folders() if 'data' not in locals() else data
+data = load_folders()
 survey_data = load_survey_data()
 categories = sorted(set(item["category"] for item in data))
 tabs = st.tabs(categories)
 
 # -------------------------------
-# Author Controls for Download Permissions
-# -------------------------------
-if st.session_state.is_author:
-    st.sidebar.subheader("Manage Download Permissions")
-    folder_choice = st.sidebar.selectbox("Select Folder for Download Settings", [item["folder"] for item in data], key="download_folder")
-    images = get_images_from_db(folder_choice)
-    if images:
-        st.sidebar.write("Toggle Download Permissions:")
-        for image_name, _, _, download_allowed, _ in images:
-            toggle_key = f"download_toggle_{folder_choice}_{image_name}"
-            current_state = st.sidebar.checkbox(f"Allow download for {image_name[:8]}...{image_name[-4:]}", 
-                                              value=download_allowed, 
-                                              key=toggle_key)
-            if current_state != download_allowed:
-                update_download_permission(folder_choice, image_name, current_state)
-                st.sidebar.success(f"Download permission updated for {image_name[:8]}...{image_name[-4:]}")
-                st.rerun()
-
-# -------------------------------
-# Loop through categories
+# Loop through categories and folders
 # -------------------------------
 for category, tab in zip(categories, tabs):
     with tab:
@@ -364,105 +193,63 @@ for category, tab in zip(categories, tabs):
 
         for item in category_data:
             st.subheader(f"{item['name']} ({item['age']}, {item['profession']})")
-
             images = get_images_from_db(item["folder"])
+
             if images:
-                # Initialize session state for current image index
-                if f"current_image_{item['folder']}" not in st.session_state:
-                    st.session_state[f"current_image_{item['folder']}"] = 0
+                # Session state for current image index
+                if f"current_{item['folder']}" not in st.session_state:
+                    st.session_state[f"current_{item['folder']}"] = 0
 
-                current_index = st.session_state[f"current_image_{item['folder']}"]
-                if current_index >= len(images):
-                    current_index = 0
-                    st.session_state[f"current_image_{item['folder']}"] = 0
+                idx = st.session_state[f"current_{item['folder']}"]
+                if idx >= len(images):
+                    idx = 0
+                    st.session_state[f"current_{item['folder']}"] = 0
 
-                # Portfolio Container
-                with st.container():
-                    # Main Image
-                    image_name, image, image_data, download_allowed, base64_image = images[current_index]
-                    mime_type, _ = mimetypes.guess_type(image_name)
-                    with st.container():
-                        st.image(image, use_container_width=True, caption="Click to view full size")
-                        if st.button("View Full Size", key=f"zoom_{item['folder']}_{current_index}"):
-                            with st.expander("Full Size Image", expanded=True):
-                                st.image(image, use_container_width=False, caption="Full size view")
+                # Main image with modal for enlargement
+                name, image, image_data, download_allowed, base64_image = images[idx]
+                mime_type, _ = mimetypes.guess_type(name)
 
-                    # Navigation Buttons
-                    col1, col2, col3 = st.columns([1, 8, 1])
-                    with col1:
-                        if current_index > 0:
-                            if st.button("◄", key=f"prev_{item['folder']}"):
-                                st.session_state[f"current_image_{item['folder']}"] = current_index - 1
-                                st.rerun()
-                    with col3:
-                        if current_index < len(images) - 1:
-                            if st.button("►", key=f"next_{item['folder']}"):
-                                st.session_state[f"current_image_{item['folder']}"] = current_index + 1
-                                st.rerun()
+                if st.button("🔍 View Large Image", key=f"modal_{item['folder']}_{idx}"):
+                    st.image(image, use_column_width=True)
 
-                    # Thumbnails
-                    with st.container():
-                        st.markdown('<div class="thumbnail-container">', unsafe_allow_html=True)
-                        cols = st.columns(min(len(images), 5))  # Limit to 5 thumbnails per row
-                        for idx, (thumb_name, thumb_image, _, _, base64_thumb) in enumerate(images):
-                            with cols[idx % 5]:
-                                if st.button("", 
-                                             key=f"thumb_{item['folder']}_{idx}", 
-                                             help=f"Select image {thumb_name[:8]}...{thumb_name[-4:]}"):
-                                    st.session_state[f"current_image_{item['folder']}"] = idx
-                                    st.rerun()
-                                st.markdown(
-                                    f'<img class="thumbnail" src="data:{mimetypes.guess_type(thumb_name)[0]};base64,{base64_thumb}">',
-                                    unsafe_allow_html=True
-                                )
-                        st.markdown('</div>', unsafe_allow_html=True)
+                st.image(image, use_column_width=True)
 
-                    # Download and Delete Buttons
-                    extension = os.path.splitext(image_name)[1].lower()
-                    download_filename = f"{uuid.uuid4()}{extension}"
-                    if download_allowed:
-                        if st.download_button(
-                            label="⬇️ Download Image",
-                            data=image_data,
-                            file_name=download_filename,
-                            mime=mime_type,
-                            key=f"download_image_{item['folder']}_{image_name}"
-                        ):
-                            st.info(f"Downloading image as {download_filename}")
-                    
-                    if st.session_state.is_author:
-                        if st.button("🗑️ Delete Image", key=f"delete_image_{item['folder']}_{image_name}"):
-                            delete_image(item["folder"], image_name)
-                            st.success(f"Image deleted from {item['folder']}")
-                            if current_index >= len(images) - 1:
-                                st.session_state[f"current_image_{item['folder']}"] = max(0, current_index - 1)
-                            st.rerun()
+                # Navigation
+                col1, col2, col3 = st.columns([1,8,1])
+                with col1:
+                    if st.button("◄ Prev", key=f"prev_{item['folder']}") and idx > 0:
+                        st.session_state[f"current_{item['folder']}"] = idx - 1
+                        st.rerun()
+                with col3:
+                    if st.button("Next ►", key=f"next_{item['folder']}") and idx < len(images)-1:
+                        st.session_state[f"current_{item['folder']}"] = idx + 1
+                        st.rerun()
+
+                # Thumbnails
+                thumb_container = st.container()
+                cols = thumb_container.columns(len(images))
+                for t_idx, (t_name, t_image, _, _, t_base64) in enumerate(images):
+                    if cols[t_idx % len(images)].button("", key=f"thumb_{item['folder']}_{t_idx}"):
+                        st.session_state[f"current_{item['folder']}"] = t_idx
+                        st.rerun()
+                    cols[t_idx % len(images)].image(t_image, width=80, caption="")
+
             else:
-                st.warning(f"No images found for {item['folder']} in database")
+                st.warning(f"No images for {item['folder']}.")
 
-            # -------------------------------
-            # Survey form
-            # -------------------------------
+            # Survey Form
             with st.expander(f"📝 Survey for {item['name']}"):
                 with st.form(key=f"survey_form_{item['folder']}"):
-                    rating = st.slider("Rating (1-5)", 1, 5, 3, key=f"rating_{item['folder']}")
-                    feedback = st.text_area("Feedback", key=f"feedback_{item['folder']}")
+                    rating = st.slider("Rating (1-5)", 1,5,3)
+                    feedback = st.text_area("Feedback")
                     if st.form_submit_button("Submit"):
-                        timestamp = datetime.now().isoformat()
-                        save_survey_data(item["folder"], rating, feedback, timestamp)
+                        save_survey_data(item['folder'], rating, feedback, datetime.now().isoformat())
                         st.success("✅ Response recorded")
                         st.rerun()
 
-            # -------------------------------
             # Display saved survey data
-            # -------------------------------
-            if item["folder"] in survey_data and survey_data[item["folder"]]:
+            if item['folder'] in survey_data and survey_data[item['folder']]:
                 st.subheader(f"💬 Survey Responses for {item['name']}")
-                for entry in survey_data[item["folder"]]:
-                    with st.expander(f"{entry['timestamp']}"):
+                for entry in survey_data[item['folder']]:
+                    with st.expander(entry['timestamp']):
                         st.write(f"⭐ {entry['rating']} — {entry['feedback']}")
-                        if st.button("🗑️ Delete", key=f"delete_survey_{item['folder']}_{entry['timestamp']}"):
-                            delete_survey_entry(item["folder"], entry["timestamp"])
-                            st.rerun()
-            else:
-                st.caption("No survey responses yet.")
