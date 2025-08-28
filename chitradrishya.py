@@ -4,6 +4,8 @@ import os
 from datetime import datetime
 import io
 from PIL import Image
+import uuid
+import mimetypes
 
 # -------------------------------
 # Database Setup
@@ -98,19 +100,22 @@ def add_folder(folder, name, age, profession, category):
         return False
 
 # -------------------------------
-# Load images into database
+# Load images into database with random filenames
 # -------------------------------
 def load_images_to_db(uploaded_files, folder):
     conn = sqlite3.connect("gallery.db")
     c = conn.cursor()
     for uploaded_file in uploaded_files:
         image_data = uploaded_file.read()
-        image_name = uploaded_file.name
-        # Check if image already exists to avoid duplicates
-        c.execute("SELECT COUNT(*) FROM images WHERE name = ? AND folder = ?", (image_name, folder))
+        # Generate random filename with original extension
+        original_filename = uploaded_file.name
+        extension = os.path.splitext(original_filename)[1].lower()
+        random_filename = f"{uuid.uuid4()}{extension}"
+        # Check if image already exists to avoid duplicates (based on folder and data)
+        c.execute("SELECT COUNT(*) FROM images WHERE folder = ? AND name = ?", (folder, random_filename))
         if c.fetchone()[0] == 0:
             c.execute("INSERT INTO images (name, folder, image_data) VALUES (?, ?, ?)",
-                      (image_name, folder, image_data))
+                      (random_filename, folder, image_data))
     conn.commit()
     conn.close()
 
@@ -173,7 +178,7 @@ def get_images_from_db(folder):
         name, image_data = row
         try:
             image = Image.open(io.BytesIO(image_data))
-            images.append((name, image))
+            images.append((name, image, image_data))
         except Exception as e:
             st.error(f"Error loading image {name}: {str(e)}")
     conn.close()
@@ -262,14 +267,26 @@ for category, tab in zip(categories, tabs):
             images = get_images_from_db(item["folder"])
             if images:
                 cols = st.columns(3)  # Show 3 images per row
-                for idx, (image_name, image) in enumerate(images):
+                for idx, (image_name, image, image_data) in enumerate(images):
                     with cols[idx % 3]:
                         st.markdown('<div class="image-container">', unsafe_allow_html=True)
                         st.image(image, use_container_width=True)
                         st.markdown('</div>', unsafe_allow_html=True)
+                        # Generate random filename for download
+                        extension = os.path.splitext(image_name)[1].lower()
+                        download_filename = f"{uuid.uuid4()}{extension}"
+                        mime_type, _ = mimetypes.guess_type(image_name)
+                        if st.download_button(
+                            label="⬇️ Download Image",
+                            data=image_data,
+                            file_name=download_filename,
+                            mime=mime_type,
+                            key=f"download_image_{item['folder']}_{image_name}"
+                        ):
+                            st.info(f"Downloading image as {download_filename}")
                         if st.button("🗑️ Delete Image", key=f"delete_image_{item['folder']}_{image_name}"):
                             delete_image(item["folder"], image_name)
-                            st.success(f"Image '{image_name}' deleted from {item['folder']}")
+                            st.success(f"Image deleted from {item['folder']}")
                             st.rerun()
             else:
                 st.warning(f"No images found for {item['folder']} in database")
