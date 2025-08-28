@@ -279,7 +279,13 @@ if st.session_state.zoom_folder is None:
         with tab:
             cat_folders = [f for f in data if f["category"] == cat]
             for f in cat_folders:
-                st.markdown(f'<div class="folder-card"><div class="folder-header">{f["name"]} ({f["age"]}, {f["profession"]})</div>', unsafe_allow_html=True)
+                st.markdown(
+                    f'<div class="folder-card"><div class="folder-header">'
+                    f'{f["name"]} ({f["age"]}, {f["profession"]})</div>',
+                    unsafe_allow_html=True
+                )
+
+                # Load images
                 images = get_images(f["folder"])
                 if images:
                     cols = st.columns(4)
@@ -292,16 +298,38 @@ if st.session_state.zoom_folder is None:
                             st.image(img_dict["image"], use_container_width=True)
                 else:
                     st.warning(f"No images found for {f['folder']}")
-                # Survey form
+
+                # Survey form + previous feedback
                 with st.expander(f"📝 Survey for {f['name']}"):
                     with st.form(key=f"survey_form_{f['folder']}"):
-                        rating = st.slider("Rating (1-5)", 1,5,3, key=f"rating_{f['folder']}")
+                        rating = st.slider("Rating (1-5)", 1, 5, 3, key=f"rating_{f['folder']}")
                         feedback = st.text_area("Feedback", key=f"feedback_{f['folder']}")
                         if st.form_submit_button("Submit"):
                             timestamp = datetime.now().isoformat()
                             save_survey_data(f["folder"], rating, feedback, timestamp)
                             st.success("✅ Response recorded")
                             st.rerun()
+
+                    # Show past survey results
+                    if f["folder"] in survey_data and survey_data[f["folder"]]:
+                        st.write("### 📊 Previous Feedback:")
+
+                        # Calculate and show average rating
+                        ratings = [entry['rating'] for entry in survey_data[f["folder"]]]
+                        avg_rating = sum(ratings) / len(ratings)
+                        st.markdown(f"**Average Rating:** ⭐ {avg_rating:.1f} ({len(ratings)} reviews)")
+
+                        # List each past response
+                        for entry in survey_data[f["folder"]]:
+                            rating_display = "⭐" * entry["rating"]
+                            st.markdown(
+                                f"- {rating_display} — {entry['feedback']}  \n"
+                                f"<sub>🕒 {entry['timestamp']}</sub>",
+                                unsafe_allow_html=True
+                            )
+                    else:
+                        st.info("No feedback yet — be the first to leave a comment!")
+
 
 # Zoom view
 else:
