@@ -19,7 +19,6 @@ def image_to_base64(image_data):
 def init_db():
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
-    # Folders table
     c.execute("""
         CREATE TABLE IF NOT EXISTS folders (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -30,7 +29,6 @@ def init_db():
             category TEXT NOT NULL
         )
     """)
-    # Images table
     c.execute("""
         CREATE TABLE IF NOT EXISTS images (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -41,7 +39,6 @@ def init_db():
             FOREIGN KEY(folder) REFERENCES folders(folder)
         )
     """)
-    # Surveys table
     c.execute("""
         CREATE TABLE IF NOT EXISTS surveys (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -52,7 +49,6 @@ def init_db():
             FOREIGN KEY(folder) REFERENCES folders(folder)
         )
     """)
-
     default_folders = [
         {"name": "Xiaojing", "age": 26, "profession": "Graphic Designer", "category": "Artists", "folder": "xiaojing"},
         {"name": "Yuena", "age": 29, "profession": "Painter", "category": "Artists", "folder": "yuena"},
@@ -105,7 +101,7 @@ def load_images_to_db(uploaded_files, folder, download_allowed=True):
         image_data = uploaded_file.read()
         extension = os.path.splitext(uploaded_file.name)[1].lower()
         random_filename = f"{uuid.uuid4()}{extension}"
-        # Prevent duplicates
+        # Ensure unique filename per folder
         c.execute("SELECT COUNT(*) FROM images WHERE folder = ? AND name = ?", (folder, random_filename))
         if c.fetchone()[0] == 0:
             c.execute("INSERT INTO images (name, folder, image_data, download_allowed) VALUES (?, ?, ?, ?)",
@@ -182,8 +178,6 @@ if "zoom_index" not in st.session_state:
     st.session_state.zoom_index = 0
 if "is_author" not in st.session_state:
     st.session_state.is_author = False
-if "upload_files" not in st.session_state:
-    st.session_state.upload_files = None
 
 # -------------------------------
 # Sidebar: Author Controls
@@ -198,155 +192,174 @@ with st.sidebar:
                 st.success("Logged in as author!")
             else:
                 st.error("Wrong password")
-
     if st.session_state.is_author and st.button("Logout"):
         st.session_state.is_author = False
         st.success("Logged out")
         st.experimental_rerun()
 
     if st.session_state.is_author:
-        st.title("Manage Folders & Images")
+        st.header("Manage Folders & Images")
+        with st.expander("➕ Add New Folder"):
+            with st.form("add_folder_form"):
+                new_folder = st.text_input("Folder Name (e.g., 'newfolder')")
+                new_name = st.text_input("Person Name")
+                new_age = st.number_input("Age", 1, 150, 25)
+                new_profession = st.text_input("Profession")
+                new_category = st.selectbox("Category", ["Artists","Engineers","Teachers"])
+                if st.form_submit_button("Add Folder"):
+                    if new_folder and new_name and new_profession and new_category:
+                        if add_folder(new_folder.lower(), new_name, new_age, new_profession, new_category):
+                            st.success(f"Folder '{new_folder}' added!")
+                            st.experimental_rerun()
+                        else:
+                            st.error("Folder exists or invalid input.")
+                    else:
+                        st.error("Fill all fields.")
 
-        # Add folder
-        st.subheader("Create New Folder")
-        with st.form("add_folder_form"):
-            new_folder = st.text_input("Folder Name")
-            new_name = st.text_input("Person Name")
-            new_age = st.number_input("Age", min_value=1, max_value=150)
-            new_profession = st.text_input("Profession")
-            new_category = st.selectbox("Category", ["Artists", "Engineers", "Teachers"])
-            if st.form_submit_button("Add Folder"):
-                if add_folder(new_folder.lower(), new_name, new_age, new_profession, new_category):
-                    st.success(f"Folder '{new_folder}' added!")
-                    st.experimental_rerun()
-
-        # Upload images
         st.subheader("Upload Images")
         data = load_folders()
-        folder_choice = st.selectbox("Select Folder", [item["folder"] for item in data])
-        st.session_state.upload_files = st.file_uploader(
-            "Select images", accept_multiple_files=True, type=['jpg','jpeg','png'], key="upload_files"
-        )
-        if st.session_state.upload_files:
-            if st.button("Upload to DB"):
-                load_images_to_db(st.session_state.upload_files, folder_choice)
-                st.success(f"{len(st.session_state.upload_files)} image(s) uploaded to '{folder_choice}'")
-                st.session_state.upload_files = None
-                st.experimental_rerun()
+        folder_choice = st.selectbox("Select Folder", [f["folder"] for f in data])
+        download_allowed = st.checkbox("Allow Downloads for New Images", value=True)
+        uploaded_files = st.file_uploader("Upload Images", accept_multiple_files=True, type=['jpg','jpeg','png'], key="upload_files")
+        if uploaded_files and st.button("Upload to DB"):
+            load_images_to_db(uploaded_files, folder_choice, download_allowed)
+            st.success(f"{len(uploaded_files)} image(s) uploaded to '{folder_choice}'!")
+            st.experimental_rerun()
 
-        # Download permissions
         st.subheader("Manage Download Permissions")
-        folder_choice_dp = st.selectbox("Select Folder", [item["folder"] for item in data], key="download_folder")
-        images = get_images(folder_choice_dp)
+        folder_perm = st.selectbox("Folder", [f["folder"] for f in data], key="folder_perm")
+        images = get_images(folder_perm)
         if images:
-            with st.form(f"download_form_{folder_choice_dp}"):
+            with st.form("download_perm_form"):
+                st.write("Toggle Download Permissions:")
                 download_states = {}
                 for img_dict in images:
-                    toggle_key = f"toggle_{folder_choice_dp}_{img_dict['name']}"
+                    toggle_key = f"download_toggle_{folder_perm}_{img_dict['name']}"
                     download_states[img_dict['name']] = st.checkbox(
                         f"{img_dict['name'][:8]}...{img_dict['name'][-4:]}",
-                        value=img_dict["download"], key=toggle_key
+                        value=img_dict["download"],
+                        key=toggle_key
                     )
                 if st.form_submit_button("Apply"):
                     for img_dict in images:
                         if download_states[img_dict['name']] != img_dict["download"]:
-                            update_download_permission(folder_choice_dp, img_dict['name'], download_states[img_dict['name']])
+                            update_download_permission(folder_perm, img_dict["name"], download_states[img_dict['name']])
                     st.success("Permissions updated!")
                     st.experimental_rerun()
 
 # -------------------------------
-# CSS for Improved GUI
+# CSS
 # -------------------------------
 st.markdown("""
 <style>
-.folder-card {background:#f9f9f9; border-radius:8px; padding:15px; margin-bottom:20px; box-shadow:0 4px 8px rgba(0,0,0,0.1);}
-.folder-card:hover {transform: translateY(-5px); box-shadow:0 6px 12px rgba(0,0,0,0.15);}
-.folder-header {font-size:1.5em; color:#333; margin-bottom:10px;}
-.image-grid {display:flex; flex-wrap:wrap; gap:10px;}
-img {max-height:150px; object-fit:cover; border-radius:4px;}
+.folder-card { background:#f9f9f9; border-radius:8px; padding:15px; margin-bottom:20px; box-shadow:0 4px 8px rgba(0,0,0,0.1);}
+.folder-header { font-size:1.5em; color:#333; margin-bottom:10px;}
+.image-grid { display:flex; flex-wrap:wrap; gap:10px; }
+.slider-container { width:100%; max-width:800px; margin:20px auto; padding:10px; border-radius:8px; background:#fff; box-shadow:0 4px 8px rgba(0,0,0,0.1);}
 </style>
 """, unsafe_allow_html=True)
 
 # -------------------------------
-# Main UI
+# App UI
 # -------------------------------
 st.title("📸 Interactive Photo Gallery & Survey")
+
 data = load_folders()
 survey_data = load_survey_data()
-categories = sorted(set(item["category"] for item in data))
+categories = sorted(set(f["category"] for f in data))
 tabs = st.tabs(categories)
 
-# Grid view
+# -------------------------------
+# Grid View
+# -------------------------------
 if st.session_state.zoom_folder is None:
     for cat, tab in zip(categories, tabs):
         with tab:
             st.header(cat)
             cat_folders = [f for f in data if f["category"]==cat]
             for f in cat_folders:
-                with st.container():
+                with st.container(key=f"folder_{f['folder']}"):
                     st.markdown(f'<div class="folder-card"><div class="folder-header">{f["name"]} ({f["age"]}, {f["profession"]})</div>', unsafe_allow_html=True)
                     images = get_images(f["folder"])
                     if images:
                         cols = st.columns(4)
                         for idx, img_dict in enumerate(images):
                             with cols[idx%4]:
-                                st.image(img_dict["image"], use_container_width=True)
-                                if st.button("🔍 View", key=f"{f['folder']}_{idx}"):
+                                if st.button("🔍 View", key=f"view_{f['folder']}_{idx}"):
                                     st.session_state.zoom_folder = f["folder"]
                                     st.session_state.zoom_index = idx
                                     st.experimental_rerun()
+                                st.image(img_dict["image"], use_container_width=True)
                     else:
-                        st.warning("No images in this folder")
+                        st.warning("No images found.")
+
                     # Survey form
                     with st.expander(f"📝 Survey for {f['name']}"):
                         with st.form(f"survey_form_{f['folder']}"):
-                            rating = st.slider("Rating",1,5,3)
-                            feedback = st.text_area("Feedback")
+                            rating = st.slider("Rating", 1,5,3, key=f"rating_{f['folder']}")
+                            feedback = st.text_area("Feedback", key=f"feedback_{f['folder']}")
                             if st.form_submit_button("Submit"):
                                 timestamp = datetime.now().isoformat()
                                 save_survey_data(f["folder"], rating, feedback, timestamp)
-                                st.success("Response recorded")
+                                st.success("Response recorded!")
                                 st.experimental_rerun()
-                    # Display survey
+
+                    # Display survey responses
                     if f["folder"] in survey_data:
                         for entry in survey_data[f["folder"]]:
-                            with st.expander(entry["timestamp"]):
+                            with st.expander(entry['timestamp']):
                                 st.write(f"⭐ {entry['rating']} — {entry['feedback']}")
                                 if st.session_state.is_author:
-                                    if st.button("🗑️ Delete", key=f"del_{f['folder']}_{entry['timestamp']}"):
-                                        delete_survey_entry(f["folder"], entry["timestamp"])
+                                    if st.button("🗑️ Delete", key=f"delete_survey_{f['folder']}_{entry['timestamp']}"):
+                                        delete_survey_entry(f["folder"], entry['timestamp'])
                                         st.experimental_rerun()
-                    st.markdown("</div>", unsafe_allow_html=True)
+                    st.markdown('</div>', unsafe_allow_html=True)
 
-# Slider / zoom view
+# -------------------------------
+# Zoom / Slider View
+# -------------------------------
 else:
     folder = st.session_state.zoom_folder
     images = get_images(folder)
     idx = st.session_state.zoom_index
-    img_dict = images[idx]
-    st.subheader(f"Viewing {folder} ({idx+1}/{len(images)})")
-    st.image(img_dict["image"], use_container_width=True)
-    col1, col2, col3 = st.columns([1,8,1])
-    with col1:
-        if idx>0 and st.button("◄ Previous"):
-            st.session_state.zoom_index -= 1
-            st.experimental_rerun()
-    with col3:
-        if idx<len(images)-1 and st.button("Next ►"):
-            st.session_state.zoom_index += 1
-            st.experimental_rerun()
-    if img_dict["download"]:
-        mime,_ = mimetypes.guess_type(img_dict["name"])
-        st.download_button("⬇️ Download", data=img_dict["data"], file_name=img_dict["name"], mime=mime)
-    if st.session_state.is_author:
-        if st.button("🗑️ Delete Image"):
-            delete_image(folder, img_dict["name"])
-            st.success("Deleted")
-            st.session_state.zoom_index = max(0, idx-1)
-            if len(get_images(folder))==0:
-                st.session_state.zoom_folder = None
-            st.experimental_rerun()
-    if st.button("⬅️ Back to Grid"):
-        st.session_state.zoom_folder = None
+    if idx >= len(images):
+        idx = 0
         st.session_state.zoom_index = 0
-        st.experimental_rerun()
+    img_dict = images[idx]
+
+    with st.container():
+        st.markdown('<div class="slider-container">', unsafe_allow_html=True)
+        st.subheader(f"Viewing {folder} ({idx+1}/{len(images)})")
+        st.image(img_dict["image"], use_container_width=True)
+
+        col1, col2, col3 = st.columns([1,8,1])
+        with col1:
+            if idx>0 and st.button("◄ Previous"):
+                st.session_state.zoom_index -= 1
+                st.experimental_rerun()
+        with col3:
+            if idx < len(images)-1 and st.button("Next ►"):
+                st.session_state.zoom_index +=1
+                st.experimental_rerun()
+
+        if img_dict["download"]:
+            mime,_ = mimetypes.guess_type(img_dict["name"])
+            st.download_button("⬇️ Download", data=img_dict["data"],
+                               file_name=f"{uuid.uuid4()}{os.path.splitext(img_dict['name'])[1]}", mime=mime)
+
+        if st.session_state.is_author:
+            if st.button("🗑️ Delete Image"):
+                delete_image(folder, img_dict["name"])
+                st.success("Deleted.")
+                st.session_state.zoom_index = max(0, idx-1)
+                if len(get_images(folder))==0:
+                    st.session_state.zoom_folder=None
+                    st.session_state.zoom_index=0
+                st.experimental_rerun()
+
+        if st.button("⬅️ Back to Grid"):
+            st.session_state.zoom_folder=None
+            st.session_state.zoom_index=0
+            st.experimental_rerun()
+
+        st.markdown('</div>', unsafe_allow_html=True)
