@@ -1,21 +1,20 @@
 import streamlit as st
 import sqlite3
-import os
-from datetime import datetime
 import io
+from datetime import datetime
 from PIL import Image
 import uuid
 import mimetypes
 import base64
 
 # -------------------------------
-# Helper: convert image to base64
+# Helper: Convert image to base64
 # -------------------------------
 def image_to_base64(image_data):
     return base64.b64encode(image_data).decode('utf-8')
 
 # -------------------------------
-# Database initialization
+# Initialize database
 # -------------------------------
 def init_db():
     conn = sqlite3.connect("gallery.db")
@@ -37,7 +36,7 @@ def init_db():
             folder TEXT NOT NULL,
             image_data BLOB NOT NULL,
             download_allowed BOOLEAN NOT NULL DEFAULT 1,
-            FOREIGN KEY (folder) REFERENCES folders (folder)
+            FOREIGN KEY (folder) REFERENCES folders(folder)
         )
     """)
     c.execute("""
@@ -47,11 +46,11 @@ def init_db():
             rating INTEGER NOT NULL,
             feedback TEXT,
             timestamp TEXT NOT NULL,
-            FOREIGN KEY (folder) REFERENCES folders (folder)
+            FOREIGN KEY (folder) REFERENCES folders(folder)
         )
     """)
     conn.commit()
-    
+
     default_folders = [
         {"name": "Xiaojing", "age": 26, "profession": "Graphic Designer", "category": "Artists", "folder": "xiaojing"},
         {"name": "Yuena", "age": 29, "profession": "Painter", "category": "Artists", "folder": "yuena"},
@@ -61,7 +60,6 @@ def init_db():
         {"name": "Haoran", "age": 34, "profession": "History Teacher", "category": "Teachers", "folder": "haoran"},
         {"name": "Yajie", "age": 27, "profession": "Musician", "category": "Artists", "folder": "yajie"},
     ]
-    
     for folder_data in default_folders:
         c.execute("SELECT COUNT(*) FROM folders WHERE folder = ?", (folder_data["folder"],))
         if c.fetchone()[0] == 0:
@@ -74,27 +72,22 @@ def init_db():
     conn.close()
 
 # -------------------------------
-# Load folders
+# Database operations
 # -------------------------------
 def load_folders():
     conn = sqlite3.connect("gallery.db")
     c = conn.cursor()
     c.execute("SELECT folder, name, age, profession, category FROM folders")
-    folders = [{"folder": row[0], "name": row[1], "age": row[2], "profession": row[3], "category": row[4]}
-               for row in c.fetchall()]
+    folders = [{"folder": r[0], "name": r[1], "age": r[2], "profession": r[3], "category": r[4]} for r in c.fetchall()]
     conn.close()
     return folders
 
-# -------------------------------
-# Load images
-# -------------------------------
 def get_images_from_db(folder):
     conn = sqlite3.connect("gallery.db")
     c = conn.cursor()
     c.execute("SELECT name, image_data, download_allowed FROM images WHERE folder = ?", (folder,))
     images = []
-    for row in c.fetchall():
-        name, image_data, download_allowed = row
+    for name, image_data, download_allowed in c.fetchall():
         try:
             image = Image.open(io.BytesIO(image_data))
             base64_image = image_to_base64(image_data)
@@ -104,9 +97,6 @@ def get_images_from_db(folder):
     conn.close()
     return images
 
-# -------------------------------
-# Save survey
-# -------------------------------
 def save_survey_data(folder, rating, feedback, timestamp):
     conn = sqlite3.connect("gallery.db")
     c = conn.cursor()
@@ -120,8 +110,7 @@ def load_survey_data():
     c = conn.cursor()
     c.execute("SELECT folder, rating, feedback, timestamp FROM surveys")
     survey_data = {}
-    for row in c.fetchall():
-        folder, rating, feedback, timestamp = row
+    for folder, rating, feedback, timestamp in c.fetchall():
         if folder not in survey_data:
             survey_data[folder] = []
         survey_data[folder].append({"rating": rating, "feedback": feedback, "timestamp": timestamp})
@@ -129,48 +118,47 @@ def load_survey_data():
     return survey_data
 
 # -------------------------------
-# Init DB
+# Initialize DB
 # -------------------------------
 init_db()
 
 # -------------------------------
-# CSS Styling + Prevent Download/Right-click
+# CSS for gallery & prevent download
 # -------------------------------
 st.markdown("""
-    <style>
-    .main-image {
-        width: 100%;
-        max-height: 80vh;
-        object-fit: contain;
-        border: 2px solid #333;
-        border-radius: 8px;
-        cursor: pointer;
-        margin-bottom: 10px;
-    }
-    .thumbnail-container {
-        display: flex;
-        overflow-x: auto;
-        gap: 10px;
-        padding: 5px 0;
-    }
-    .thumbnail {
-        width: 120px;
-        height: 120px;
-        object-fit: cover;
-        border-radius: 4px;
-        cursor: pointer;
-        border: 1px solid #ccc;
-    }
-    .thumbnail:hover {
-        border-color: #333;
-    }
-    img {
-        pointer-events: none;
-        -webkit-user-drag: none;
-        user-drag: none;
-        user-select: none;
-    }
-    </style>
+<style>
+.main-image {
+    width: 100%;
+    max-height: 80vh;
+    object-fit: contain;
+    border: 2px solid #333;
+    border-radius: 8px;
+    margin-bottom: 10px;
+}
+.thumbnail-container {
+    display: flex;
+    overflow-x: auto;
+    gap: 10px;
+    padding: 5px 0;
+}
+.thumbnail {
+    width: 120px;
+    height: 120px;
+    object-fit: cover;
+    border-radius: 4px;
+    border: 1px solid #ccc;
+    cursor: pointer;
+}
+.thumbnail:hover {
+    border-color: #333;
+}
+img {
+    pointer-events: none;
+    -webkit-user-drag: none;
+    user-drag: none;
+    user-select: none;
+}
+</style>
 """, unsafe_allow_html=True)
 
 # -------------------------------
@@ -183,9 +171,6 @@ survey_data = load_survey_data()
 categories = sorted(set(item["category"] for item in data))
 tabs = st.tabs(categories)
 
-# -------------------------------
-# Loop through categories and folders
-# -------------------------------
 for category, tab in zip(categories, tabs):
     with tab:
         st.header(category)
@@ -196,22 +181,15 @@ for category, tab in zip(categories, tabs):
             images = get_images_from_db(item["folder"])
 
             if images:
-                # Session state for current image index
                 if f"current_{item['folder']}" not in st.session_state:
                     st.session_state[f"current_{item['folder']}"] = 0
-
                 idx = st.session_state[f"current_{item['folder']}"]
                 if idx >= len(images):
                     idx = 0
                     st.session_state[f"current_{item['folder']}"] = 0
 
-                # Main image with modal for enlargement
+                # Main image
                 name, image, image_data, download_allowed, base64_image = images[idx]
-                mime_type, _ = mimetypes.guess_type(name)
-
-                if st.button("🔍 View Large Image", key=f"modal_{item['folder']}_{idx}"):
-                    st.image(image, use_column_width=True)
-
                 st.image(image, use_column_width=True)
 
                 # Navigation
@@ -225,14 +203,14 @@ for category, tab in zip(categories, tabs):
                         st.session_state[f"current_{item['folder']}"] = idx + 1
                         st.rerun()
 
-                # Thumbnails
-                thumb_container = st.container()
-                cols = thumb_container.columns(len(images))
+                # Horizontal thumbnails
+                st.markdown('<div class="thumbnail-container">', unsafe_allow_html=True)
                 for t_idx, (t_name, t_image, _, _, t_base64) in enumerate(images):
-                    if cols[t_idx % len(images)].button("", key=f"thumb_{item['folder']}_{t_idx}"):
+                    if st.button("", key=f"thumb_{item['folder']}_{t_idx}", help=t_name):
                         st.session_state[f"current_{item['folder']}"] = t_idx
                         st.rerun()
-                    cols[t_idx % len(images)].image(t_image, width=80, caption="")
+                    st.image(t_image, width=80)
+                st.markdown('</div>', unsafe_allow_html=True)
 
             else:
                 st.warning(f"No images for {item['folder']}.")
@@ -247,7 +225,7 @@ for category, tab in zip(categories, tabs):
                         st.success("✅ Response recorded")
                         st.rerun()
 
-            # Display saved survey data
+            # Display surveys
             if item['folder'] in survey_data and survey_data[item['folder']]:
                 st.subheader(f"💬 Survey Responses for {item['name']}")
                 for entry in survey_data[item['folder']]:
