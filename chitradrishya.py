@@ -6,6 +6,7 @@ import uuid
 import mimetypes
 from datetime import datetime
 import base64
+import os
 
 DB_PATH = "gallery.db"
 
