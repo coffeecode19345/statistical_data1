@@ -277,7 +277,7 @@ st.markdown("""
     .main-image-container {
         position: relative;
         width: 100%;
-        height: 400px;
+        max-height: 400px;
         overflow: hidden;
         border: 2px solid #333;
         border-radius: 8px;
@@ -286,13 +286,9 @@ st.markdown("""
     }
     .main-image {
         width: 100%;
-        height: 100%;
+        max-height: 400px;
         object-fit: contain;
         cursor: pointer;
-        transition: transform 0.3s ease;
-    }
-    .main-image.zoomed {
-        transform: scale(1.5);
     }
     .thumbnail-container {
         display: flex;
@@ -321,18 +317,12 @@ st.markdown("""
         margin: 5px;
     }
     img {
-        pointer-events: none;
+        pointer-events: none; /* Prevent right-click and drag */
         -webkit-user-drag: none;
         user-drag: none;
         user-select: none;
     }
     </style>
-    <script>
-    function toggleZoom(imageId) {
-        const image = document.getElementById(imageId);
-        image.classList.toggle('zoomed');
-    }
-    </script>
 """, unsafe_allow_html=True)
 
 # -------------------------------
@@ -387,66 +377,66 @@ for category, tab in zip(categories, tabs):
                     st.session_state[f"current_image_{item['folder']}"] = 0
 
                 # Portfolio Container
-                st.markdown('<div class="portfolio-container">', unsafe_allow_html=True)
-                
-                # Main Image
-                image_name, image, image_data, download_allowed, base64_image = images[current_index]
-                mime_type, _ = mimetypes.guess_type(image_name)
-                main_image_id = f"main_image_{item['folder']}_{current_index}"
-                st.markdown(
-                    f"""
-                    <div class="main-image-container">
-                        <img id="{main_image_id}" class="main-image" src="data:{mime_type};base64,{base64_image}" onclick="toggleZoom('{main_image_id}')">
-                    </div>
-                    """,
-                    unsafe_allow_html=True
-                )
+                with st.container():
+                    # Main Image
+                    image_name, image, image_data, download_allowed, base64_image = images[current_index]
+                    mime_type, _ = mimetypes.guess_type(image_name)
+                    with st.container():
+                        st.image(image, use_container_width=True, caption="Click to view full size")
+                        if st.button("View Full Size", key=f"zoom_{item['folder']}_{current_index}"):
+                            with st.expander("Full Size Image", expanded=True):
+                                st.image(image, use_container_width=False, caption="Full size view")
 
-                # Navigation Buttons
-                col1, col2, col3 = st.columns([1, 8, 1])
-                with col1:
-                    if st.button("◄", key=f"prev_{item['folder']}") and current_index > 0:
-                        st.session_state[f"current_image_{item['folder']}"] = current_index - 1
-                        st.rerun()
-                with col3:
-                    if st.button("►", key=f"next_{item['folder']}") and current_index < len(images) - 1:
-                        st.session_state[f"current_image_{item['folder']}"] = current_index + 1
-                        st.rerun()
+                    # Navigation Buttons
+                    col1, col2, col3 = st.columns([1, 8, 1])
+                    with col1:
+                        if current_index > 0:
+                            if st.button("◄", key=f"prev_{item['folder']}"):
+                                st.session_state[f"current_image_{item['folder']}"] = current_index - 1
+                                st.rerun()
+                    with col3:
+                        if current_index < len(images) - 1:
+                            if st.button("►", key=f"next_{item['folder']}"):
+                                st.session_state[f"current_image_{item['folder']}"] = current_index + 1
+                                st.rerun()
 
-                # Thumbnails
-                st.markdown(f'<div class="thumbnail-container" key="thumb_container_{item["folder"]}">', unsafe_allow_html=True)
-                for idx, (thumb_name, thumb_image, _, _, base64_thumb) in enumerate(images):
-                    if st.button("", 
-                                 key=f"thumb_{item['folder']}_{idx}", 
-                                 help=f"Select image {thumb_name[:8]}...{thumb_name[-4:]}",
-                                 on_click=lambda idx=idx: st.session_state.__setitem__(f"current_image_{item['folder']}", idx)):
-                        st.rerun()
-                    st.markdown(
-                        f'<img class="thumbnail" src="data:{mimetypes.guess_type(thumb_name)[0]};base64,{base64_thumb}">',
-                        unsafe_allow_html=True
-                    )
-                st.markdown('</div>', unsafe_allow_html=True)
+                    # Thumbnails
+                    with st.container():
+                        st.markdown('<div class="thumbnail-container">', unsafe_allow_html=True)
+                        cols = st.columns(min(len(images), 5))  # Limit to 5 thumbnails per row
+                        for idx, (thumb_name, thumb_image, _, _, base64_thumb) in enumerate(images):
+                            with cols[idx % 5]:
+                                if st.button("", 
+                                             key=f"thumb_{item['folder']}_{idx}", 
+                                             help=f"Select image {thumb_name[:8]}...{thumb_name[-4:]}"):
+                                    st.session_state[f"current_image_{item['folder']}"] = idx
+                                    st.rerun()
+                                st.markdown(
+                                    f'<img class="thumbnail" src="data:{mimetypes.guess_type(thumb_name)[0]};base64,{base64_thumb}">',
+                                    unsafe_allow_html=True
+                                )
+                        st.markdown('</div>', unsafe_allow_html=True)
 
-                # Download and Delete Buttons
-                extension = os.path.splitext(image_name)[1].lower()
-                download_filename = f"{uuid.uuid4()}{extension}"
-                if download_allowed:
-                    if st.download_button(
-                        label="⬇️ Download Image",
-                        data=image_data,
-                        file_name=download_filename,
-                        mime=mime_type,
-                        key=f"download_image_{item['folder']}_{image_name}"
-                    ):
-                        st.info(f"Downloading image as {download_filename}")
-                
-                if st.session_state.is_author:
-                    if st.button("🗑️ Delete Image", key=f"delete_image_{item['folder']}_{image_name}"):
-                        delete_image(item["folder"], image_name)
-                        st.success(f"Image deleted from {item['folder']}")
-                        if current_index >= len(images) - 1:
-                            st.session_state[f"current_image_{item['folder']}"] = max(0, current_index - 1)
-                        st.rerun()
+                    # Download and Delete Buttons
+                    extension = os.path.splitext(image_name)[1].lower()
+                    download_filename = f"{uuid.uuid4()}{extension}"
+                    if download_allowed:
+                        if st.download_button(
+                            label="⬇️ Download Image",
+                            data=image_data,
+                            file_name=download_filename,
+                            mime=mime_type,
+                            key=f"download_image_{item['folder']}_{image_name}"
+                        ):
+                            st.info(f"Downloading image as {download_filename}")
+                    
+                    if st.session_state.is_author:
+                        if st.button("🗑️ Delete Image", key=f"delete_image_{item['folder']}_{image_name}"):
+                            delete_image(item["folder"], image_name)
+                            st.success(f"Image deleted from {item['folder']}")
+                            if current_index >= len(images) - 1:
+                                st.session_state[f"current_image_{item['folder']}"] = max(0, current_index - 1)
+                            st.rerun()
             else:
                 st.warning(f"No images found for {item['folder']} in database")
 
