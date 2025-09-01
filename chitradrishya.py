@@ -1,4 +1,3 @@
-```python
 import streamlit as st
 import sqlite3
 import io
@@ -570,4 +569,4 @@ else:
         st.session_state.zoom_folder = None
         st.session_state.zoom_index = 0
         st.rerun()
-```
+
