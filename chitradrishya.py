@@ -1,3 +1,4 @@
+```python
 import streamlit as st
 import sqlite3
 import io
@@ -8,7 +9,6 @@ import uuid
 import re
 import base64
 from dotenv import load_dotenv
-from rembg import remove  # For background removal
 import random
 import string
 
@@ -179,18 +179,6 @@ def crop_image(image_data, crop_box):
         return output.getvalue()
     except Exception as e:
         st.error(f"Error cropping image: {str(e)}")
-        return None
-
-def remove_background(image_data):
-    """Remove the background from an image using rembg."""
-    try:
-        img = Image.open(io.BytesIO(image_data)).convert("RGBA")
-        output_img = remove(img)
-        output = io.BytesIO()
-        output_img.save(output, format="PNG")
-        return output.getvalue()
-    except Exception as e:
-        st.error(f"Error removing background: {str(e)}")
         return None
 
 def rotate_image(image_data, degrees):
@@ -550,7 +538,6 @@ else:
             right = st.number_input("Right", min_value=0, max_value=img_dict["image"].width, value=img_dict["image"].width)
             bottom = st.number_input("Bottom", min_value=0, max_value=img_dict["image"].height, value=img_dict["image"].height)
             rotate_angle = st.slider("Rotate (degrees)", -180, 180, 0)
-            remove_bg = st.checkbox("Remove Background")
             
             if st.form_submit_button("Apply Edits"):
                 edited_data = img_dict["data"]
@@ -558,8 +545,6 @@ else:
                     edited_data = crop_image(edited_data, (left, top, right, bottom))
                 if rotate_angle != 0:
                     edited_data = rotate_image(edited_data, rotate_angle)
-                if remove_bg:
-                    edited_data = remove_background(edited_data)
                 if edited_data:
                     conn = sqlite3.connect(DB_PATH)
                     c = conn.cursor()
@@ -585,3 +570,4 @@ else:
         st.session_state.zoom_folder = None
         st.session_state.zoom_index = 0
         st.rerun()
+```
