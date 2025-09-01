@@ -1,6 +1,6 @@
-pandas
 streamlit
 pillow
-dotenv
+python-dotenv
 rembg
 onnxruntime
+torch
