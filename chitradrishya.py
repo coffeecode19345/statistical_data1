@@ -20,8 +20,8 @@ logger = logging.getLogger(__name__)
 # Load environment variables
 load_dotenv()
 ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "admin123")  # Fallback for testing
-
 DB_PATH = "gallery.db"
+MAX_FILE_SIZE_MB = 5  # Max file size for uploads in MB
 
 # -------------------------------
 # Helper Classes
@@ -156,21 +156,20 @@ class DatabaseManager:
             return False
 
     @staticmethod
-    def load_images_to_db(uploaded_files, folder, download_allowed=True):
-        """Load images into the database."""
+    def load_images_to_db(edited_data_list, folder, download_allowed=True):
+        """Load edited images into the database."""
         conn = DatabaseManager.connect()
         c = conn.cursor()
-        for uploaded_file in uploaded_files:
-            image_data = uploaded_file.read()
-            extension = os.path.splitext(uploaded_file.name)[1].lower()
+        for edited_data in edited_data_list:
+            extension = ".png"  # Since edits save as PNG
             random_filename = f"{uuid.uuid4()}{extension}"
             c.execute("SELECT COUNT(*) FROM images WHERE folder = ? AND name = ?", (folder, random_filename))
             if c.fetchone()[0] == 0:
                 c.execute("INSERT INTO images (name, folder, image_data, download_allowed) VALUES (?, ?, ?, ?)",
-                          (random_filename, folder, image_data, download_allowed))
+                          (random_filename, folder, edited_data, download_allowed))
         conn.commit()
         conn.close()
-        logger.info(f"Uploaded {len(uploaded_files)} images to folder '{folder}'")
+        logger.info(f"Uploaded {len(edited_data_list)} images to folder '{folder}'")
 
     @staticmethod
     def swap_image(folder, old_image_name, new_image_file):
@@ -315,7 +314,7 @@ class DatabaseManager:
             name, data, download = r
             try:
                 img = Image.open(io.BytesIO(data))
-                thumbnail = generate_thumbnail(img)
+                thumbnail = ImageProcessor.generate_thumbnail(img)
                 base64_image = image_to_base64(data)
                 images.append({
                     "name": name,
@@ -450,6 +449,25 @@ def generate_random_name(length=8):
     """Generate a random name for default folders."""
     return ''.join(random.choices(string.ascii_letters, k=length)).capitalize()
 
+def validate_file(file):
+    """Validate uploaded file size, type, and integrity."""
+    if file.size > MAX_FILE_SIZE_MB * 1024 * 1024:
+        st.error(f"File {file.name} exceeds {MAX_FILE_SIZE_MB}MB limit.")
+        logger.warning(f"File {file.name} exceeds size limit")
+        return False
+    if not file.type in ['image/jpeg', 'image/png']:
+        st.error(f"File {file.name} is not a supported type (JPG, JPEG, PNG).")
+        logger.warning(f"Unsupported file type for {file.name}")
+        return False
+    try:
+        Image.open(file).verify()  # Verify image integrity
+        file.seek(0)  # Reset file pointer after verification
+    except Exception as e:
+        st.error(f"File {file.name} is corrupted or invalid.")
+        logger.error(f"Corrupted file {file.name}: {str(e)}")
+        return False
+    return True
+
 # -------------------------------
 # Initialize DB & Session State
 # -------------------------------
@@ -462,23 +480,87 @@ if "is_author" not in st.session_state:
     st.session_state.is_author = False
 if "crop_coords" not in st.session_state:
     st.session_state.crop_coords = None
+if "upload_previews" not in st.session_state:
+    st.session_state.upload_previews = []
+if "upload_crop_coords" not in st.session_state:
+    st.session_state.upload_crop_coords = {}
+if "dark_mode" not in st.session_state:
+    st.session_state.dark_mode = False
 
 # -------------------------------
 # CSS and JavaScript
 # -------------------------------
 st.markdown("""
 <style>
-.folder-card {background: #f9f9f9; border-radius: 8px; padding: 15px; margin-bottom: 20px; box-shadow: 0 4px 8px rgba(0,0,0,0.1);}
-.folder-header {font-size:1.5em; color:#333; margin-bottom:10px;}
-.image-grid {display:flex; flex-wrap:wrap; gap:10px;}
-img {border-radius:4px;}
-.canvas-container {position: relative; display: inline-block;}
-#cropCanvas {border: 2px solid #007bff;}
-.selection-box {position: absolute; border: 2px dashed #007bff; background: rgba(0,123,255,0.2); pointer-events: none;}
-.stButton>button {margin: 5px;}
+body {
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+}
+.folder-card {
+    background: var(--card-bg, #f9f9f9);
+    border-radius: 8px;
+    padding: 15px;
+    margin-bottom: 20px;
+    box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+}
+.folder-header {
+    font-size: 1.5em;
+    color: var(--text-color, #333);
+    margin-bottom: 10px;
+}
+.image-grid {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+}
+img {
+    border-radius: 4px;
+}
+.canvas-container {
+    position: relative;
+    display: inline-block;
+}
+#cropCanvas {
+    border: 2px solid #007bff;
+}
+.selection-box {
+    position: absolute;
+    border: 2px dashed #007bff;
+    background: rgba(0,123,255,0.2);
+    pointer-events: none;
+}
+.stButton>button {
+    margin: 5px;
+    border-radius: 4px;
+}
+.preview-container {
+    border: 1px solid var(--border-color, #ddd);
+    padding: 15px;
+    margin-bottom: 15px;
+    border-radius: 8px;
+    background: var(--card-bg, #fff);
+}
+.before-after-container {
+    display: flex;
+    gap: 10px;
+    align-items: center;
+}
+.before-after-image {
+    max-width: 150px;
+    border-radius: 4px;
+}
+:root {
+    --card-bg: #f9f9f9;
+    --text-color: #333;
+    --border-color: #ddd;
+}
+.dark-mode {
+    --card-bg: #2a2a2a;
+    --text-color: #e0e0e0;
+    --border-color: #555;
+}
 </style>
 <script>
-function initCropCanvas(imageId, width, height) {
+function initCropCanvas(imageId, width, height, isPreview=false, previewIndex=null) {
     const canvas = document.getElementById(imageId);
     const ctx = canvas.getContext('2d');
     let isDragging = false;
@@ -530,13 +612,26 @@ function initCropCanvas(imageId, width, height) {
                 right: Math.max(startX, endX),
                 bottom: Math.max(startY, endY)
             };
-            document.getElementById('crop_coords').value = JSON.stringify(coords);
+            const coordsInputId = isPreview ? `upload_crop_coords_${previewIndex}` : 'crop_coords';
+            document.getElementById(coordsInputId).value = JSON.stringify(coords);
             if (selectionBox) {
                 selectionBox.remove();
                 selectionBox = null;
             }
         }
     });
+
+    canvas.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape' && selectionBox) {
+            selectionBox.remove();
+            selectionBox = null;
+            isDragging = false;
+            document.getElementById(coordsInputId).value = '';
+        }
+    });
+}
+function toggleDarkMode() {
+    document.body.classList.toggle('dark-mode');
 }
 </script>
 """, unsafe_allow_html=True)
@@ -561,6 +656,11 @@ with st.sidebar:
         st.success("Logged out")
         logger.info("Author logged out")
         st.rerun()
+
+    # Dark Mode Toggle
+    if st.button("Toggle Dark Mode", help="Switch between light and dark themes"):
+        st.session_state.dark_mode = not st.session_state.dark_mode
+        st.markdown(f"<script>toggleDarkMode();</script>", unsafe_allow_html=True)
 
     if st.session_state.is_author:
         st.subheader("Manage Folders & Images", help="Manage gallery content")
@@ -599,18 +699,141 @@ with st.sidebar:
                     else:
                         st.error("Please enter a valid name.")
 
-        # Upload Images
+        # Enhanced Upload Images with Before-and-After
         with st.expander("Upload Images"):
             folder_choice = st.selectbox("Select Folder", [item["folder"] for item in data], key="upload_folder")
             download_allowed = st.checkbox("Allow Downloads for New Images", value=True)
             uploaded_files = st.file_uploader(
                 "Upload Images", accept_multiple_files=True, type=['jpg', 'jpeg', 'png'], key="upload_files",
-                help="Upload multiple images (JPG, JPEG, PNG)"
+                help=f"Upload multiple images (JPG, JPEG, PNG). Max {MAX_FILE_SIZE_MB}MB per file."
             )
-            if st.button("Upload to DB") and uploaded_files:
-                DatabaseManager.load_images_to_db(uploaded_files, folder_choice, download_allowed)
-                st.success(f"{len(uploaded_files)} image(s) uploaded to '{folder_choice}'!")
-                st.rerun()
+
+            if uploaded_files:
+                valid_files = [f for f in uploaded_files if validate_file(f)]
+                if len(valid_files) != len(uploaded_files):
+                    st.warning("Some files were invalid or corrupted and skipped.")
+                if valid_files:
+                    st.write("**Preview and Edit Uploaded Images**")
+                    edited_data_list = []
+                    cols = st.columns(2)  # Two-column grid for previews
+                    for i, file in enumerate(valid_files):
+                        with cols[i % 2]:
+                            st.markdown(f"<div class='preview-container'>", unsafe_allow_html=True)
+                            st.write(f"**{file.name}**")
+                            file_data = file.read()
+                            file.seek(0)  # Reset file pointer
+                            try:
+                                img = Image.open(io.BytesIO(file_data))
+                                file_size_mb = file.size / (1024 * 1024)
+                                st.write(f"Size: {file_size_mb:.2f} MB, Dimensions: {img.width}x{img.height}")
+                                base64_image = image_to_base64(file_data)
+                                canvas_width = min(img.width, 300)  # Smaller canvas for previews
+                                canvas_height = int(canvas_width * (img.height / img.width))
+                                image_id = f"upload_crop_canvas_{i}"
+                                st.markdown(
+                                    f"""
+                                    <div class="canvas-container">
+                                        <canvas id="{image_id}" width="{canvas_width}" height="{canvas_height}" aria-label="Click and drag to crop preview image {i+1}"></canvas>
+                                        <input type="hidden" id="upload_crop_coords_{i}" name="upload_crop_coords_{i}">
+                                    </div>
+                                    <script>
+                                        const uploadImg{i} = new Image();
+                                        uploadImg{i}.src = "data:image/png;base64,{base64_image}";
+                                        uploadImg{i}.onload = function() {{
+                                            const canvas = document.getElementById('{image_id}');
+                                            const ctx = canvas.getContext('2d');
+                                            ctx.drawImage(uploadImg{i}, 0, 0, {canvas_width}, {canvas_height});
+                                            initCropCanvas('{image_id}', {canvas_width}, {canvas_height}, true, {i});
+                                        }};
+                                    </script>
+                                    """,
+                                    unsafe_allow_html=True
+                                )
+
+                                # Before-and-After Comparison
+                                st.write("**Before and After**")
+                                edited_data = file_data
+                                before_img = Image.open(io.BytesIO(file_data))
+                                before_base64 = image_to_base64(file_data)
+                                after_img = before_img.copy()
+                                after_data = file_data
+
+                                # Manipulation options
+                                rotate_angle = st.slider("Rotate (degrees)", -180, 180, 0, key=f"upload_rotate_{i}")
+                                brightness = st.slider("Brightness", 0.0, 2.0, 1.0, step=0.1, key=f"upload_brightness_{i}")
+                                contrast = st.slider("Contrast", 0.0, 2.0, 1.0, step=0.1, key=f"upload_contrast_{i}")
+                                sharpness = st.slider("Sharpness", 0.0, 2.0, 1.0, step=0.1, key=f"upload_sharpness_{i}")
+                                grayscale = st.checkbox("Convert to Grayscale", key=f"upload_grayscale_{i}")
+
+                                # Apply edits for preview
+                                crop_coords_input = st.text_input("Crop Coordinates (JSON)", key=f"upload_crop_coords_input_{i}", disabled=True)
+                                if crop_coords_input:
+                                    try:
+                                        crop_coords = json.loads(crop_coords_input)
+                                        scale_x = img.width / canvas_width
+                                        scale_y = img.height / canvas_height
+                                        crop_box = (
+                                            int(crop_coords["left"] * scale_x),
+                                            int(crop_coords["top"] * scale_y),
+                                            int(crop_coords["right"] * scale_x),
+                                            int(crop_coords["bottom"] * scale_y)
+                                        )
+                                        if crop_box[0] < crop_box[2] and crop_box[1] < crop_box[3]:
+                                            after_data = ImageProcessor.crop_image(edited_data, crop_box)
+                                            if after_data:
+                                                after_img = Image.open(io.BytesIO(after_data))
+                                    except json.JSONDecodeError:
+                                        st.error("Invalid crop coordinates for this preview")
+                                if rotate_angle != 0:
+                                    after_data = ImageProcessor.rotate_image(after_data, rotate_angle)
+                                    if after_data:
+                                        after_img = Image.open(io.BytesIO(after_data))
+                                if brightness != 1.0:
+                                    after_data = ImageProcessor.adjust_brightness(after_data, brightness)
+                                    if after_data:
+                                        after_img = Image.open(io.BytesIO(after_data))
+                                if contrast != 1.0:
+                                    after_data = ImageProcessor.adjust_contrast(after_data, contrast)
+                                    if after_data:
+                                        after_img = Image.open(io.BytesIO(after_data))
+                                if sharpness != 1.0:
+                                    after_data = ImageProcessor.adjust_sharpness(after_data, sharpness)
+                                    if after_data:
+                                        after_img = Image.open(io.BytesIO(after_data))
+                                if grayscale:
+                                    after_data = ImageProcessor.convert_to_grayscale(after_data)
+                                    if after_data:
+                                        after_img = Image.open(io.BytesIO(after_data))
+
+                                # Display Before-and-After
+                                with st.container():
+                                    cols = st.columns(2)
+                                    with cols[0]:
+                                        st.image(before_img, caption="Before", use_container_width=True, clamp=True)
+                                    with cols[1]:
+                                        st.image(after_img, caption="After", use_container_width=True, clamp=True)
+
+                                # Reset Edits Button
+                                if st.button("Reset Edits", key=f"reset_upload_{i}", help="Revert to original image"):
+                                    st.session_state.upload_crop_coords[f"upload_crop_coords_input_{i}"] = ""
+                                    st.rerun()
+
+                                edited_data_list.append(after_data)
+                                st.markdown("</div>", unsafe_allow_html=True)
+                            except Exception as e:
+                                st.error(f"Error processing {file.name}: {str(e)}")
+                                logger.error(f"Error processing {file.name}: {str(e)}")
+
+                    if st.button("Upload Edited Images", help="Save all edited images to the database"):
+                        with st.spinner("Uploading images..."):
+                            progress_bar = st.progress(0)
+                            for j in range(len(edited_data_list)):
+                                progress_bar.progress((j + 1) / len(edited_data_list))
+                            DatabaseManager.load_images_to_db(edited_data_list, folder_choice, download_allowed)
+                        st.success(f"{len(edited_data_list)} image(s) uploaded to '{folder_choice}'!")
+                        st.session_state.upload_previews = []
+                        st.session_state.upload_crop_coords = {}
+                        st.rerun()
 
         # Image Swap
         with st.expander("Image Swap"):
@@ -620,11 +843,14 @@ with st.sidebar:
                 image_choice = st.selectbox("Select Image to Swap", [img["name"] for img in images], key="swap_image")
                 new_image = st.file_uploader("Upload New Image", type=['jpg', 'jpeg', 'png'], key="swap_upload")
                 if st.button("Swap Image") and new_image:
-                    if DatabaseManager.swap_image(folder_choice_swap, image_choice, new_image):
-                        st.success(f"Image '{image_choice}' swapped in '{folder_choice_swap}'!")
-                        st.rerun()
+                    if validate_file(new_image):
+                        if DatabaseManager.swap_image(folder_choice_swap, image_choice, new_image):
+                            st.success(f"Image '{image_choice}' swapped in '{folder_choice_swap}'!")
+                            st.rerun()
+                        else:
+                            st.error("Failed to swap image.")
                     else:
-                        st.error("Failed to swap image.")
+                        st.error("Invalid file for swap.")
 
         # Download Permissions
         with st.expander("Download Permissions"):
@@ -802,7 +1028,6 @@ else:
             """,
             unsafe_allow_html=True
         )
-
     else:
         st.image(img_dict["image"], use_container_width=True)
 
