@@ -22,7 +22,7 @@ load_dotenv()
 ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "admin123")  # Fallback for testing
 DB_PATH = "gallery.db"
 MAX_FILE_SIZE_MB = 5  # Max file size for uploads in MB
-FORCE_DB_RESET = os.getenv("FORCE_DB_RESET", "False").lower() == "true"  # Fix: Define with default value
+FORCE_DB_RESET = os.getenv("FORCE_DB_RESET", "False").lower() == "true"  # Define with default value
 
 # -------------------------------
 # Helper Functions
@@ -1006,136 +1006,144 @@ with tabs[1]:
             st.write(f"**Editing: {file.name}**")
             file_data = file.read()
             file.seek(0)
+            
             try:
                 img = Image.open(io.BytesIO(file_data))
                 file_size_mb = len(file_data) / (1024 * 1024)
                 st.write(f"Size: {file_size_mb:.2f} MB, Dimensions: {img.width}x{img.height}")
-                base64_image = image_to_base64(file_data)
-                canvas_width = min(img.width, 300)
-                canvas_height = int(canvas_width * (img.height / img.width))
-                image_id = f"upload_crop_canvas_{i}"
-                st.markdown(
-                    f"""
-                    <div class="canvas-container">
-                        <canvas id="{image_id}" width="{canvas_width}" height="{canvas_height}" aria-label="Click and drag to crop {file.name}"></canvas>
-                        <input type="hidden" id="upload_crop_coords_{i}" name="upload_crop_coords_{i}">
-                    </div>
-                    <script>
-                        const uploadImg{i} = new Image();
-                        uploadImg{i}.src = "data:image/png;base64,{base64_image}";
-                        uploadImg{i}.onload = function() {{
-                            const canvas = document.getElementById('{image_id}');
-                            const ctx = canvas.getContext('2d');
-                            ctx.drawImage(uploadImg{i}, 0, 0, {canvas_width}, {canvas_height});
-                            initCropCanvas('{image_id}', {canvas_width}, {canvas_height}, true, {i});
-                        }};
-                    </script>
-                    """,
-                    unsafe_allow_html=True
-                )
-
-                # Before-and-After Slider
-                before_img = Image.open(io.BytesIO(file_data))
-                before_base64 = image_to_base64(file_data)
-                after_img = before_img.copy()
-                after_data = file_data
-                container_id = f"before_after_{i}"
-                before_id = f"before_img_{i}"
-                after_id = f"after_img_{i}"
-                slider_id = f"slider_{i}"
-                st.markdown(
-                    f"""
-                    <div class="before-after-container" id="{container_id}">
-                        <img src="data:image/png;base64,{before_base64}" class="before-after-image" id="{before_id}" alt="Before image">
-                        <img src="data:image/png;base64,{before_base64}" class="before-after-image" id="{after_id}" alt="After image" style="position: absolute; clip: rect(0px, 150px, 200px, 0px);">
-                        <div class="slider" id="{slider_id}" style="left: 150px;"></div>
-                    </div>
-                    <script>
-                        initBeforeAfterSlider('{container_id}', '{before_id}', '{after_id}', '{slider_id}');
-                    </script>
-                    """,
-                    unsafe_allow_html=True
-                )
-
-                # Edit Controls
-                with st.form(key=f"edit_upload_form_{i}"):
-                    rotate_angle = st.slider("Rotate (degrees)", -180, 180, 0, key=f"upload_rotate_{i}", help="Rotate the image")
-                    brightness = st.slider("Brightness", 0.0, 2.0, 1.0, step=0.1, key=f"upload_brightness_{i}", help="Adjust brightness")
-                    contrast = st.slider("Contrast", 0.0, 2.0, 1.0, step=0.1, key=f"upload_contrast_{i}", help="Adjust contrast")
-                    sharpness = st.slider("Sharpness", 0.0, 2.0, 1.0, step=0.1, key=f"upload_sharpness_{i}", help="Adjust sharpness")
-                    grayscale = st.checkbox("Grayscale", key=f"upload_grayscale_{i}", help="Convert to grayscale")
-                    crop_coords_input = st.text_input("Crop Coordinates (JSON)", key=f"upload_crop_coords_input_{i}", disabled=True)
-
-                    if st.form_submit_button("Apply Edits"):
-                        edited_data = file_data
-                        if crop_coords_input:
-                            try:
-                                crop_coords = json.loads(crop_coords_input)
-                                scale_x = img.width / canvas_width
-                                scale_y = img.height / canvas_height
-                                crop_box = (
-                                    int(crop_coords["left"] * scale_x),
-                                    int(crop_coords["top"] * scale_y),
-                                    int(crop_coords["right"] * scale_x),
-                                    int(crop_coords["bottom"] * scale_y)
-                                )
-                                if crop_box[0] < crop_box[2] and crop_box[1] < crop_box[3]:
-                                    edited_data = ImageProcessor.crop_image(edited_data, crop_box)
-                            except json.JSONDecodeError:
-                                st.error("Invalid crop coordinates")
-                        if rotate_angle != 0:
-                            edited_data = ImageProcessor.rotate_image(edited_data, rotate_angle)
-                        if brightness != 1.0:
-                            edited_data = ImageProcessor.adjust_brightness(edited_data, brightness)
-                        if contrast != 1.0:
-                            edited_data = ImageProcessor.adjust_contrast(edited_data, contrast)
-                        if sharpness != 1.0:
-                            edited_data = ImageProcessor.adjust_sharpness(edited_data, sharpness)
-                        if grayscale:
-                            edited_data = ImageProcessor.convert_to_grayscale(edited_data)
-                        if edited_data:
-                            edited_data_list.append(edited_data)
-                            st.session_state.upload_previews[i] = io.BytesIO(edited_data)
-                            st.success("Edits applied! Preview updated.")
-                            try:
-                                st.rerun()
-                            except AttributeError:
-                                st.experimental_rerun()
-
-                if st.button("Reset Edits", key=f"reset_upload_{i}", help="Revert to original image"):
-                    st.session_state.upload_crop_coords[f"upload_crop_coords_input_{i}"] = ""
-                    st.session_state.upload_previews[i] = io.BytesIO(file_data)
-                    try:
-                        st.rerun()
-                    except AttributeError:
-                        st.experimental_rerun()
-
+            except Exception as e:
+                st.error(f"Failed to load image {file.name}: {str(e)}")
+                logger.error(f"Failed to load image {file.name}: {str(e)}")
                 st.markdown("</div>", unsafe_allow_html=True)
+                continue
 
-            col1, col2 = st.columns([1, 1])
-            with col1:
-                if st.button("⬅️ Back to Upload", help="Return to upload selection"):
-                    st.session_state.upload_step = 0
-                    st.session_state.upload_previews = []
-                    try:
-                        st.rerun()
-                    except AttributeError:
-                        st.experimental_rerun()
-            with col2:
-                if st.button("✅ Upload Images", help="Save all edited images"):
-                    with st.spinner("Uploading images..."):
-                        progress_bar = st.progress(0)
-                        for j in range(len(edited_data_list)):
-                            progress_bar.progress((j + 1) / len(edited_data_list))
-                        DatabaseManager.load_images_to_db(edited_data_list, folder_choice, st.session_state.get("download_allowed", True))
-                    st.success(f"{len(edited_data_list)} image(s) uploaded!")
-                    st.balloons()
-                    st.session_state.upload_step = 0
-                    st.session_state.upload_previews = []
-                    try:
-                        st.rerun()
-                    except AttributeError:
-                        st.experimental_rerun()
+            base64_image = image_to_base64(file_data)
+            canvas_width = min(img.width, 300)
+            canvas_height = int(canvas_width * (img.height / img.width))
+            image_id = f"upload_crop_canvas_{i}"
+            st.markdown(
+                f"""
+                <div class="canvas-container">
+                    <canvas id="{image_id}" width="{canvas_width}" height="{canvas_height}" aria-label="Click and drag to crop {file.name}"></canvas>
+                    <input type="hidden" id="upload_crop_coords_{i}" name="upload_crop_coords_{i}">
+                </div>
+                <script>
+                    const uploadImg{i} = new Image();
+                    uploadImg{i}.src = "data:image/png;base64,{base64_image}";
+                    uploadImg{i}.onload = function() {{
+                        const canvas = document.getElementById('{image_id}');
+                        const ctx = canvas.getContext('2d');
+                        ctx.drawImage(uploadImg{i}, 0, 0, {canvas_width}, {canvas_height});
+                        initCropCanvas('{image_id}', {canvas_width}, {canvas_height}, true, {i});
+                    }};
+                </script>
+                """,
+                unsafe_allow_html=True
+            )
+
+            # Before-and-After Slider
+            before_img = Image.open(io.BytesIO(file_data))
+            before_base64 = image_to_base64(file_data)
+            after_img = before_img.copy()
+            after_data = file_data
+            container_id = f"before_after_{i}"
+            before_id = f"before_img_{i}"
+            after_id = f"after_img_{i}"
+            slider_id = f"slider_{i}"
+            st.markdown(
+                f"""
+                <div class="before-after-container" id="{container_id}">
+                    <img src="data:image/png;base64,{before_base64}" class="before-after-image" id="{before_id}" alt="Before image">
+                    <img src="data:image/png;base64,{before_base64}" class="before-after-image" id="{after_id}" alt="After image" style="position: absolute; clip: rect(0px, 150px, 200px, 0px);">
+                    <div class="slider" id="{slider_id}" style="left: 150px;"></div>
+                </div>
+                <script>
+                    initBeforeAfterSlider('{container_id}', '{before_id}', '{after_id}', '{slider_id}');
+                </script>
+                """,
+                unsafe_allow_html=True
+            )
+
+            # Edit Controls
+            with st.form(key=f"edit_upload_form_{i}"):
+                rotate_angle = st.slider("Rotate (degrees)", -180, 180, 0, key=f"upload_rotate_{i}", help="Rotate the image")
+                brightness = st.slider("Brightness", 0.0, 2.0, 1.0, step=0.1, key=f"upload_brightness_{i}", help="Adjust brightness")
+                contrast = st.slider("Contrast", 0.0, 2.0, 1.0, step=0.1, key=f"upload_contrast_{i}", help="Adjust contrast")
+                sharpness = st.slider("Sharpness", 0.0, 2.0, 1.0, step=0.1, key=f"upload_sharpness_{i}", help="Adjust sharpness")
+                grayscale = st.checkbox("Grayscale", key=f"upload_grayscale_{i}", help="Convert to grayscale")
+                crop_coords_input = st.text_input("Crop Coordinates (JSON)", key=f"upload_crop_coords_input_{i}", disabled=True)
+
+                if st.form_submit_button("Apply Edits"):
+                    edited_data = file_data
+                    if crop_coords_input:
+                        try:
+                            crop_coords = json.loads(crop_coords_input)
+                            scale_x = img.width / canvas_width
+                            scale_y = img.height / canvas_height
+                            crop_box = (
+                                int(crop_coords["left"] * scale_x),
+                                int(crop_coords["top"] * scale_y),
+                                int(crop_coords["right"] * scale_x),
+                                int(crop_coords["bottom"] * scale_y)
+                            )
+                            if crop_box[0] < crop_box[2] and crop_box[1] < crop_box[3]:
+                                edited_data = ImageProcessor.crop_image(edited_data, crop_box)
+                        except json.JSONDecodeError:
+                            st.error("Invalid crop coordinates")
+                    if rotate_angle != 0:
+                        edited_data = ImageProcessor.rotate_image(edited_data, rotate_angle)
+                    if brightness != 1.0:
+                        edited_data = ImageProcessor.adjust_brightness(edited_data, brightness)
+                    if contrast != 1.0:
+                        edited_data = ImageProcessor.adjust_contrast(edited_data, contrast)
+                    if sharpness != 1.0:
+                        edited_data = ImageProcessor.adjust_sharpness(edited_data, sharpness)
+                    if grayscale:
+                        edited_data = ImageProcessor.convert_to_grayscale(edited_data)
+                    if edited_data:
+                        edited_data_list.append(edited_data)
+                        st.session_state.upload_previews[i] = io.BytesIO(edited_data)
+                        st.success("Edits applied! Preview updated.")
+                        try:
+                            st.rerun()
+                        except AttributeError:
+                            st.experimental_rerun()
+
+            if st.button("Reset Edits", key=f"reset_upload_{i}", help="Revert to original image"):
+                if f"upload_crop_coords_input_{i}" in st.session_state:
+                    del st.session_state[f"upload_crop_coords_input_{i}"]
+                st.session_state.upload_previews[i] = io.BytesIO(file_data)
+                try:
+                    st.rerun()
+                except AttributeError:
+                    st.experimental_rerun()
+
+            st.markdown("</div>", unsafe_allow_html=True)
+
+        col1, col2 = st.columns([1, 1])
+        with col1:
+            if st.button("⬅️ Back to Upload", help="Return to upload selection"):
+                st.session_state.upload_step = 0
+                st.session_state.upload_previews = []
+                try:
+                    st.rerun()
+                except AttributeError:
+                    st.experimental_rerun()
+        with col2:
+            if st.button("✅ Upload Images", help="Save all edited images"):
+                with st.spinner("Uploading images..."):
+                    progress_bar = st.progress(0)
+                    for j in range(len(edited_data_list)):
+                        progress_bar.progress((j + 1) / len(edited_data_list))
+                    DatabaseManager.load_images_to_db(edited_data_list, folder_choice, st.session_state.get("download_allowed", True))
+                st.success(f"{len(edited_data_list)} image(s) uploaded!")
+                st.balloons()
+                st.session_state.upload_step = 0
+                st.session_state.upload_previews = []
+                try:
+                    st.rerun()
+                except AttributeError:
+                    st.experimental_rerun()
     
     elif st.session_state.zoom_folder:
         folder = st.session_state.zoom_folder
@@ -1392,5 +1400,3 @@ with tabs[-1]:
     - Click and drag on the canvas to crop images; press Escape to cancel.
     - Use the before-after slider to compare edits.
     """)
-
-
