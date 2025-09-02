@@ -1150,3 +1150,5 @@ with tabs[-1]:
     - Use the dark mode toggle for better visibility.
     - Images must be JPG/PNG and under 5MB.
     """)
+```
+
