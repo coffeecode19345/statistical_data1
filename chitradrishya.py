@@ -79,68 +79,74 @@ class DatabaseManager:
     def init_db():
         """Initialize database with folders, images, and surveys tables."""
         conn = DatabaseManager.connect()
-        c = conn.cursor()
-        c.execute("""
-            CREATE TABLE IF NOT EXISTS folders (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                folder TEXT UNIQUE NOT NULL,
-                name TEXT NOT NULL,
-                age INTEGER NOT NULL,
-                profession TEXT NOT NULL,
-                category TEXT NOT NULL
-            )
-        """)
-        c.execute("""
-            CREATE TABLE IF NOT EXISTS images (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                name TEXT NOT NULL,
-                folder TEXT NOT NULL,
-                image_data BLOB NOT NULL,
-                download_allowed BOOLEAN NOT NULL DEFAULT 1,
-                FOREIGN KEY(folder) REFERENCES folders(folder)
-            )
-        """)
-        c.execute("""
-            CREATE TABLE IF NOT EXISTS surveys (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                folder TEXT NOT NULL,
-                rating INTEGER NOT NULL,
-                feedback TEXT,
-                timestamp TEXT NOT NULL,
-                FOREIGN KEY(folder) REFERENCES folders(folder)
-            )
-        """)
-        c.execute("""
-            CREATE TABLE IF NOT EXISTS image_history (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                image_id INTEGER NOT NULL,
-                folder TEXT NOT NULL,
-                image_data BLOB NOT NOT NULL,
-                timestamp TEXT NOT NULL,
-                FOREIGN KEY(image_id) REFERENCES images(id)
-            )
-        """)
-        default_folders = [
-            {"name": generate_random_name(), "age": 26, "profession": "Graphic Designer", "category": "Artists", "folder": "artist1"},
-            {"name": generate_random_name(), "age": 29, "profession": "Painter", "category": "Artists", "folder": "artist2"},
-            {"name": generate_random_name(), "age": 30, "profession": "Literature Teacher", "category": "Teachers", "folder": "teacher1"},
-            {"name": generate_random_name(), "age": 27, "profession": "Musician", "category": "Artists", "folder": "artist3"},
-            {"name": generate_random_name(), "age": 47, "profession": "Data Scientist", "category": "Engineers", "folder": "engineer1"},
-            {"name": generate_random_name(), "age": 25, "profession": "Software Developer", "category": "Engineers", "folder": "engineer2"},
-            {"name": generate_random_name(), "age": 34, "profession": "History Teacher", "category": "Teachers", "folder": "teacher2"},
-        ]
-        for folder_data in default_folders:
-            if validate_folder_name(folder_data["folder"]):
-                c.execute("SELECT COUNT(*) FROM folders WHERE folder = ?", (folder_data["folder"],))
-                if c.fetchone()[0] == 0:
-                    c.execute("""
-                        INSERT INTO folders (folder, name, age, profession, category)
-                        VALUES (?, ?, ?, ?, ?)
-                    """, (folder_data["folder"], folder_data["name"], folder_data["age"],
-                          folder_data["profession"], folder_data["category"]))
-        conn.commit()
-        conn.close()
-        logger.info("Database initialized with default folders.")
+        try:
+            c = conn.cursor()
+            c.execute("""
+                CREATE TABLE IF NOT EXISTS folders (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    folder TEXT UNIQUE NOT NULL,
+                    name TEXT NOT NULL,
+                    age INTEGER NOT NULL,
+                    profession TEXT NOT NULL,
+                    category TEXT NOT NULL
+                )
+            """)
+            c.execute("""
+                CREATE TABLE IF NOT EXISTS images (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    name TEXT NOT NULL,
+                    folder TEXT NOT NULL,
+                    image_data BLOB NOT NULL,
+                    download_allowed BOOLEAN NOT NULL DEFAULT 1,
+                    FOREIGN KEY(folder) REFERENCES folders(folder)
+                )
+            """)
+            c.execute("""
+                CREATE TABLE IF NOT EXISTS surveys (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    folder TEXT NOT NULL,
+                    rating INTEGER NOT NULL,
+                    feedback TEXT,
+                    timestamp TEXT NOT NULL,
+                    FOREIGN KEY(folder) REFERENCES folders(folder)
+                )
+            """)
+            c.execute("""
+                CREATE TABLE IF NOT EXISTS image_history (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    image_id INTEGER NOT NULL,
+                    folder TEXT NOT NULL,
+                    image_data BLOB NOT NULL,  # Fixed: Changed 'NOT NOT NULL' to 'NOT NULL'
+                    timestamp TEXT NOT NULL,
+                    FOREIGN KEY(image_id) REFERENCES images(id)
+                )
+            """)
+            default_folders = [
+                {"name": generate_random_name(), "age": 26, "profession": "Graphic Designer", "category": "Artists", "folder": "artist1"},
+                {"name": generate_random_name(), "age": 29, "profession": "Painter", "category": "Artists", "folder": "artist2"},
+                {"name": generate_random_name(), "age": 30, "profession": "Literature Teacher", "category": "Teachers", "folder": "teacher1"},
+                {"name": generate_random_name(), "age": 27, "profession": "Musician", "category": "Artists", "folder": "artist3"},
+                {"name": generate_random_name(), "age": 47, "profession": "Data Scientist", "category": "Engineers", "folder": "engineer1"},
+                {"name": generate_random_name(), "age": 25, "profession": "Software Developer", "category": "Engineers", "folder": "engineer2"},
+                {"name": generate_random_name(), "age": 34, "profession": "History Teacher", "category": "Teachers", "folder": "teacher2"},
+            ]
+            for folder_data in default_folders:
+                if validate_folder_name(folder_data["folder"]):
+                    c.execute("SELECT COUNT(*) FROM folders WHERE folder = ?", (folder_data["folder"],))
+                    if c.fetchone()[0] == 0:
+                        c.execute("""
+                            INSERT INTO folders (folder, name, age, profession, category)
+                            VALUES (?, ?, ?, ?, ?)
+                        """, (folder_data["folder"], folder_data["name"], folder_data["age"],
+                              folder_data["profession"], folder_data["category"]))
+            conn.commit()
+            logger.info("Database initialized with default folders.")
+        except sqlite3.OperationalError as e:
+            logger.error(f"SQLite error during database initialization: {str(e)}")
+            st.error(f"Database initialization failed: {str(e)}")
+            raise
+        finally:
+            conn.close()
 
     @staticmethod
     @st.cache_data(show_spinner=False)
@@ -217,6 +223,9 @@ class DatabaseManager:
                               (random_filename, folder, edited_data, download_allowed))
             conn.commit()
             logger.info(f"Uploaded {len(edited_data_list)} images to folder '{folder}'")
+        except sqlite3.OperationalError as e:
+            logger.error(f"SQLite error during image upload: {str(e)}")
+            st.error(f"Failed to upload images: {str(e)}")
         finally:
             conn.close()
 
@@ -501,7 +510,13 @@ class ImageProcessor:
 # -------------------------------
 # Initialize DB & Session State
 # -------------------------------
-DatabaseManager.init_db()
+try:
+    DatabaseManager.init_db()
+except sqlite3.OperationalError as e:
+    st.error(f"Failed to initialize database: {str(e)}")
+    logger.error(f"Database initialization failed: {str(e)}")
+    st.stop()
+
 if "zoom_folder" not in st.session_state:
     st.session_state.zoom_folder = None
 if "zoom_index" not in st.session_state:
@@ -1204,4 +1219,3 @@ else:
             st.rerun()
         except AttributeError:
             st.experimental_rerun()
-
