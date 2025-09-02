@@ -552,6 +552,10 @@ if "upload_step" not in st.session_state:
     st.session_state.upload_step = 0
 if "search_query" not in st.session_state:
     st.session_state.search_query = ""
+if "form_upload_folder" not in st.session_state:
+    st.session_state.form_upload_folder = None
+if "form_download_allowed" not in st.session_state:
+    st.session_state.form_download_allowed = None
 
 # -------------------------------
 # CSS and JavaScript
@@ -764,23 +768,29 @@ with st.sidebar:
 
         with st.expander("🖼️ Upload Images"):
             data = DatabaseManager.load_folders()
-            folder_choice = st.selectbox("Select Folder", [item["folder"] for item in data], key="upload_folder")
-            download_allowed = st.checkbox("Allow Downloads for New Images", value=True, help="Allow users to download these images")
-            uploaded_files = st.file_uploader(
-                "Upload Images", accept_multiple_files=True, type=['jpg', 'jpeg', 'png'], key="upload_files",
-                help=f"Select JPG/PNG images (max {MAX_FILE_SIZE_MB}MB each)"
-            )
+            with st.form(key="upload_images_form"):
+                folder_choice = st.selectbox("Select Folder", [item["folder"] for item in data], key="upload_folder")
+                download_allowed = st.checkbox("Allow Downloads for New Images", value=True, help="Allow users to download these images")
+                uploaded_files = st.file_uploader(
+                    "Upload Images", accept_multiple_files=True, type=['jpg', 'jpeg', 'png'], key="upload_files",
+                    help=f"Select JPG/PNG images (max {MAX_FILE_SIZE_MB}MB each)"
+                )
+                submit_button = st.form_submit_button("➡️ Proceed to Edit")
 
-            if uploaded_files:
-                valid_files = [f for f in uploaded_files if validate_file(f)]
-                if len(valid_files) != len(uploaded_files):
-                    st.warning("Some files were invalid or corrupted and skipped.")
-                if valid_files:
-                    st.session_state.upload_previews = valid_files
-                    st.session_state.upload_step = 1
-                    st.session_state.upload_folder = folder_choice
-                    st.session_state.download_allowed = download_allowed
-                    st.rerun()
+                if submit_button and uploaded_files:
+                    valid_files = [f for f in uploaded_files if validate_file(f)]
+                    if len(valid_files) != len(uploaded_files):
+                        st.warning("Some files were invalid or corrupted and skipped.")
+                    if valid_files:
+                        st.session_state.upload_previews = valid_files
+                        st.session_state.upload_step = 1
+                        st.session_state.form_upload_folder = folder_choice
+                        st.session_state.form_download_allowed = download_allowed
+                        st.rerun()
+                    else:
+                        st.error("No valid files uploaded. Please check file types and sizes.")
+                elif submit_button and not uploaded_files:
+                    st.error("Please upload at least one image.")
 
         with st.expander("🔄 Swap Image"):
             data = DatabaseManager.load_folders()
@@ -883,7 +893,7 @@ with tabs[0]:
 with tabs[1]:
     if st.session_state.upload_step == 1 and st.session_state.is_author:
         st.subheader("🖼️ Upload Images - Edit & Preview")
-        folder_choice = st.session_state.get("upload_folder", data[0]["folder"] if data else "")
+        folder_choice = st.session_state.get("form_upload_folder", data[0]["folder"] if data else "")
         valid_files = st.session_state.upload_previews
         edited_data_list = []
         
@@ -943,6 +953,8 @@ with tabs[1]:
             if st.button("⬅️ Back to Upload", help="Return to upload selection"):
                 st.session_state.upload_step = 0
                 st.session_state.upload_previews = []
+                st.session_state.form_upload_folder = None
+                st.session_state.form_download_allowed = None
                 st.rerun()
         with col2:
             if st.button("✅ Upload Images", help="Save all edited images"):
@@ -950,11 +962,13 @@ with tabs[1]:
                     progress_bar = st.progress(0)
                     for j in range(len(edited_data_list)):
                         progress_bar.progress((j + 1) / len(edited_data_list))
-                    DatabaseManager.load_images_to_db(edited_data_list, folder_choice, st.session_state.get("download_allowed", True))
+                    DatabaseManager.load_images_to_db(edited_data_list, folder_choice, st.session_state.get("form_download_allowed", True))
                 st.success(f"{len(edited_data_list)} image(s) uploaded!")
                 st.balloons()
                 st.session_state.upload_step = 0
                 st.session_state.upload_previews = []
+                st.session_state.form_upload_folder = None
+                st.session_state.form_download_allowed = None
                 st.rerun()
     
     elif st.session_state.zoom_folder:
@@ -1128,13 +1142,11 @@ with tabs[-1]:
     ### Admin Tools
     1. **Login**: Enter the admin password in the sidebar.
     2. **Add Folders**: Create new folders with a name, age, profession, and category.
-    3. **Upload Images**: Select a folder, upload images, and edit them (crop, rotate, etc.).
+    3. **Upload Images**: Select a folder, upload images, and edit them (rotate, brightness, etc.).
     4. **Edit Images**: In zoom view, apply edits or undo changes.
     5. **Manage Permissions**: Control which images can be downloaded.
 
     ### Tips
     - Use the dark mode toggle for better visibility.
     - Images must be JPG/PNG and under 5MB.
-    - Click and drag on the canvas to crop images; press Escape to cancel.
-    - Use the before-after slider to compare edits.
     """)
