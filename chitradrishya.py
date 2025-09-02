@@ -24,7 +24,6 @@ load_dotenv()
 ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "admin123")  # Fallback for testing
 DB_PATH = "gallery.db"
 MAX_FILE_SIZE_MB = 5  # Max file size for uploads in MB
-FORCE_DB_RESET = os.getenv("FORCE_DB_RESET", "False").lower() == "true"  # Optional: Force database reset
 
 # -------------------------------
 # Helper Functions
@@ -996,7 +995,7 @@ with st.sidebar:
 
 # -------------------------------
 # Main App UI
-# -------------------------------
+# -----------------------
 st.title("📸 Interactive Photo Gallery & Survey")
 
 # Search Bar
