@@ -5,3 +5,4 @@ rembg
 onnxruntime
 torch
 names
+plotly
