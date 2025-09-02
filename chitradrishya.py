@@ -24,6 +24,7 @@ load_dotenv()
 ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "admin123")  # Fallback for testing
 DB_PATH = "gallery.db"
 MAX_FILE_SIZE_MB = 5  # Max file size for uploads in MB
+FORCE_DB_RESET = os.getenv("FORCE_DB_RESET", "False").lower() == "true"  # Optional: Force database reset
 
 # -------------------------------
 # Helper Functions
@@ -73,54 +74,106 @@ class DatabaseManager:
     
     @staticmethod
     def connect():
-        return sqlite3.connect(DB_PATH)
-    
+        """Establish a database connection."""
+        try:
+            return sqlite3.connect(DB_PATH)
+        except sqlite3.OperationalError as e:
+            logger.error(f"Failed to connect to database at {DB_PATH}: {str(e)}")
+            st.error(f"Database connection failed: {str(e)}")
+            raise
+
     @staticmethod
     def init_db():
-        """Initialize database with folders, images, and surveys tables."""
+        """Initialize database with folders, images, surveys, and image_history tables."""
+        # Check if database file is writable
+        db_dir = os.path.dirname(DB_PATH) or "."
+        if not os.access(db_dir, os.W_OK):
+            logger.error(f"Directory {db_dir} is not writable")
+            st.error(f"Cannot write to database directory: {db_dir}")
+            raise PermissionError(f"Directory {db_dir} is not writable")
+
+        # Reset database if FORCE_DB_RESET is True
+        if FORCE_DB_RESET and os.path.exists(DB_PATH):
+            try:
+                os.remove(DB_PATH)
+                logger.info(f"Deleted existing database file {DB_PATH} due to FORCE_DB_RESET")
+            except Exception as e:
+                logger.error(f"Failed to delete database file {DB_PATH}: {str(e)}")
+                st.error(f"Failed to reset database: {str(e)}")
+                raise
+
         conn = DatabaseManager.connect()
         try:
             c = conn.cursor()
-            c.execute("""
-                CREATE TABLE IF NOT EXISTS folders (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    folder TEXT UNIQUE NOT NULL,
-                    name TEXT NOT NULL,
-                    age INTEGER NOT NULL,
-                    profession TEXT NOT NULL,
-                    category TEXT NOT NULL
-                )
-            """)
-            c.execute("""
-                CREATE TABLE IF NOT EXISTS images (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    name TEXT NOT NULL,
-                    folder TEXT NOT NULL,
-                    image_data BLOB NOT NULL,
-                    download_allowed BOOLEAN NOT NULL DEFAULT 1,
-                    FOREIGN KEY(folder) REFERENCES folders(folder)
-                )
-            """)
-            c.execute("""
-                CREATE TABLE IF NOT EXISTS surveys (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    folder TEXT NOT NULL,
-                    rating INTEGER NOT NULL,
-                    feedback TEXT,
-                    timestamp TEXT NOT NULL,
-                    FOREIGN KEY(folder) REFERENCES folders(folder)
-                )
-            """)
-            c.execute("""
-                CREATE TABLE IF NOT EXISTS image_history (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    image_id INTEGER NOT NULL,
-                    folder TEXT NOT NULL,
-                    image_data BLOB NOT NULL,  # Fixed: Changed 'NOT NOT NULL' to 'NOT NULL'
-                    timestamp TEXT NOT NULL,
-                    FOREIGN KEY(image_id) REFERENCES images(id)
-                )
-            """)
+            # Create folders table
+            try:
+                c.execute("""
+                    CREATE TABLE IF NOT EXISTS folders (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        folder TEXT UNIQUE NOT NULL,
+                        name TEXT NOT NULL,
+                        age INTEGER NOT NULL,
+                        profession TEXT NOT NULL,
+                        category TEXT NOT NULL
+                    )
+                """)
+                logger.info("Created folders table")
+            except sqlite3.OperationalError as e:
+                logger.error(f"Failed to create folders table: {str(e)}")
+                raise
+
+            # Create images table
+            try:
+                c.execute("""
+                    CREATE TABLE IF NOT EXISTS images (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        name TEXT NOT NULL,
+                        folder TEXT NOT NULL,
+                        image_data BLOB NOT NULL,
+                        download_allowed BOOLEAN NOT NULL DEFAULT 1,
+                        FOREIGN KEY(folder) REFERENCES folders(folder)
+                    )
+                """)
+                logger.info("Created images table")
+            except sqlite3.OperationalError as e:
+                logger.error(f"Failed to create images table: {str(e)}")
+                raise
+
+            # Create surveys table
+            try:
+                c.execute("""
+                    CREATE TABLE IF NOT EXISTS surveys (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        folder TEXT NOT NULL,
+                        rating INTEGER NOT NULL,
+                        feedback TEXT,
+                        timestamp TEXT NOT NULL,
+                        FOREIGN KEY(folder) REFERENCES folders(folder)
+                    )
+                """)
+                logger.info("Created surveys table")
+            except sqlite3.OperationalError as e:
+                logger.error(f"Failed to create surveys table: {str(e)}")
+                raise
+
+            # Create image_history table
+            try:
+                c.execute("""
+                    CREATE TABLE IF NOT EXISTS image_history (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        image_id INTEGER NOT NULL,
+                        folder TEXT NOT NULL,
+                        image_data BLOB NOT NULL,
+                        timestamp TEXT NOT NULL,
+                        FOREIGN KEY(image_id) REFERENCES images(id)
+                    )
+                """)
+                logger.info("Created image_history table")
+            except sqlite3.OperationalError as e:
+                logger.error(f"Failed to create image_history table: {str(e)}")
+                raise
+
+            # Insert default folders
             default_folders = [
                 {"name": generate_random_name(), "age": 26, "profession": "Graphic Designer", "category": "Artists", "folder": "artist1"},
                 {"name": generate_random_name(), "age": 29, "profession": "Painter", "category": "Artists", "folder": "artist2"},
@@ -140,7 +193,7 @@ class DatabaseManager:
                         """, (folder_data["folder"], folder_data["name"], folder_data["age"],
                               folder_data["profession"], folder_data["category"]))
             conn.commit()
-            logger.info("Database initialized with default folders.")
+            logger.info("Database initialized with default folders")
         except sqlite3.OperationalError as e:
             logger.error(f"SQLite error during database initialization: {str(e)}")
             st.error(f"Database initialization failed: {str(e)}")
