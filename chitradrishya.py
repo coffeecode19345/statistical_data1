@@ -170,7 +170,6 @@ class DatabaseManager:
             conn.close()
 
     @staticmethod
-    @st.cache_data(show_spinner=False)
     def load_folders(search_query=""):
         """Load folders from database, optionally filtered by search query."""
         conn = DatabaseManager.connect()
@@ -178,7 +177,7 @@ class DatabaseManager:
             c = conn.cursor()
             query = "SELECT folder, name, age, profession, category FROM folders WHERE name LIKE ? OR folder LIKE ? OR profession LIKE ? OR category LIKE ?"
             c.execute(query, (f"%{search_query}%", f"%{search_query}%", f"%{search_query}%", f"%{search_query}%"))
-            folders = tuple({"folder": r[0], "name": r[1], "age": r[2], "profession": r[3], "category": r[4]} for r in c.fetchall())
+            folders = [{"folder": r[0], "name": r[1], "age": r[2], "profession": r[3], "category": r[4]} for r in c.fetchall()]
             logger.info(f"Loaded {len(folders)} folders with search query: {search_query}")
             return folders
         finally:
@@ -396,7 +395,6 @@ class DatabaseManager:
             conn.close()
 
     @staticmethod
-    @st.cache_data(show_spinner=False)
     def get_images(folder):
         """Get images from database for a folder."""
         conn = DatabaseManager.connect()
@@ -422,7 +420,7 @@ class DatabaseManager:
                     logger.error(f"Error loading image {name}: {str(e)}")
                     st.error(f"Error loading image {name}: {str(e)}")
             logger.info(f"Loaded {len(images)} images for folder '{folder}'")
-            return tuple(images)
+            return images
         finally:
             conn.close()
 
@@ -552,6 +550,8 @@ if "dark_mode" not in st.session_state:
     st.session_state.dark_mode = False
 if "upload_step" not in st.session_state:
     st.session_state.upload_step = 0
+if "search_query" not in st.session_state:
+    st.session_state.search_query = ""
 
 # -------------------------------
 # CSS and JavaScript
@@ -672,119 +672,34 @@ img {
     --header-bg: #2d2d2d;
 }
 </style>
-<script>
-function initCropCanvas(imageId, width, height, isPreview=false, previewIndex=null) {
-    const canvas = document.getElementById(imageId);
-    const ctx = canvas.getContext('2d');
-    let isDragging = false;
-    let startX, startY, endX, endY;
-    let selectionBox = null;
-
-    function updateSelectionBox() {
-        if (selectionBox) {
-            selectionBox.style.left = Math.min(startX, endX) + 'px';
-            selectionBox.style.top = Math.min(startY, endY) + 'px';
-            selectionBox.style.width = Math.abs(endX - startX) + 'px';
-            selectionBox.style.height = Math.abs(endY - startY) + 'px';
-        }
-    }
-
-    canvas.addEventListener('mousedown', (e) => {
-        if (!isDragging) {
-            isDragging = true;
-            const rect = canvas.getBoundingClientRect();
-            startX = e.clientX - rect.left;
-            startY = e.clientY - rect.top;
-            endX = startX;
-            endY = startY;
-
-            if (!selectionBox) {
-                selectionBox = document.createElement('div');
-                selectionBox.className = 'selection-box';
-                canvas.parentElement.appendChild(selectionBox);
-            }
-            updateSelectionBox();
-        }
-    });
-
-    canvas.addEventListener('mousemove', (e) => {
-        if (isDragging) {
-            const rect = canvas.getBoundingClientRect();
-            endX = Math.min(Math.max(e.clientX - rect.left, 0), canvas.width);
-            endY = Math.min(Math.max(e.clientY - rect.top, 0), canvas.height);
-            updateSelectionBox();
-        }
-    });
-
-    canvas.addEventListener('mouseup', () => {
-        if (isDragging) {
-            isDragging = false;
-            const coords = {
-                left: Math.min(startX, endX),
-                top: Math.min(startY, endY),
-                right: Math.max(startX, endX),
-                bottom: Math.max(startY, endY)
-            };
-            const coordsInputId = isPreview ? `upload_crop_coords_${previewIndex}` : 'crop_coords';
-            document.getElementById(coordsInputId).value = JSON.stringify(coords);
-            if (selectionBox) {
-                selectionBox.remove();
-                selectionBox = null;
-            }
-        }
-    });
-
-    canvas.addEventListener('keydown', (e) => {
-        if (e.key === 'Escape' && selectionBox) {
-            selectionBox.remove();
-            selectionBox = null;
-            isDragging = false;
-            document.getElementById(coordsInputId).value = '';
-        }
-    });
-}
-
-function initBeforeAfterSlider(containerId, beforeId, afterId, sliderId) {
-    const container = document.getElementById(containerId);
-    const beforeImg = document.getElementById(beforeId);
-    const afterImg = document.getElementById(afterId);
-    const slider = document.getElementById(sliderId);
-    
-    slider.addEventListener('mousedown', () => {
-        document.addEventListener('mousemove', moveSlider);
-        document.addEventListener('mouseup', () => {
-            document.removeEventListener('mousemove', moveSlider);
-        });
-    });
-
-    function moveSlider(e) {
-        const rect = container.getBoundingClientRect();
-        let x = e.clientX - rect.left;
-        x = Math.max(0, Math.min(x, rect.width));
-        slider.style.left = x + 'px';
-        afterImg.style.clip = `rect(0px, ${rect.width}px, ${rect.height}px, ${x}px)`;
-    }
-}
-
-function toggleDarkMode() {
-    document.body.classList.toggle('dark-mode');
-}
-</script>
 """, unsafe_allow_html=True)
+
+# Apply dark mode if enabled
+if st.session_state.dark_mode:
+    st.markdown("""
+    <style>
+    body {
+        --bg-color: #1a1a1a;
+        --card-bg: #2d2d2d;
+        --text-color: #e0e0e0;
+        --border-color: #555555;
+        --header-bg: #2d2d2d;
+    }
+    </style>
+    """, unsafe_allow_html=True)
 
 # -------------------------------
 # Header Navigation
 # -------------------------------
-st.markdown("""
-<div class="header">
-    <h1>🖼️ Photo Gallery</h1>
-    <div>
-        <input type="text" id="search_bar" placeholder="Search folders..." style="padding: 0.5rem; border-radius: 8px; border: 1px solid var(--border-color);">
-        <button onclick="toggleDarkMode()" style="margin-left: 1rem; padding: 0.5rem 1rem; border-radius: 8px;">🌙 Dark Mode</button>
-        <button id="login_logout_btn" style="margin-left: 1rem; padding: 0.5rem 1rem; border-radius: 8px;">{}</button>
-    </div>
-</div>
-""".format("Logout" if st.session_state.is_author else "Login"), unsafe_allow_html=True)
+col1, col2, col3 = st.columns([2, 1, 1])
+with col1:
+    st.title("🖼️ Photo Gallery")
+with col2:
+    search_query = st.text_input("Search folders...", value=st.session_state.search_query, key="search_input")
+with col3:
+    if st.button("🌙 Toggle Dark Mode"):
+        st.session_state.dark_mode = not st.session_state.dark_mode
+        st.rerun()
 
 # -------------------------------
 # Sidebar: Author Controls
@@ -800,10 +715,7 @@ with st.sidebar:
                     st.balloons()
                     st.success("Logged in as admin!")
                     logger.info("Admin logged in")
-                    try:
-                        st.rerun()
-                    except AttributeError:
-                        st.experimental_rerun()
+                    st.rerun()
                 else:
                     st.error("Incorrect password")
                     logger.warning("Failed login attempt")
@@ -812,10 +724,7 @@ with st.sidebar:
             st.session_state.is_author = False
             st.success("Logged out")
             logger.info("Admin logged out")
-            try:
-                st.rerun()
-            except AttributeError:
-                st.experimental_rerun()
+            st.rerun()
 
         with st.expander("📁 Add New Folder"):
             with st.form(key="add_folder_form"):
@@ -830,10 +739,7 @@ with st.sidebar:
                         if DatabaseManager.add_folder(new_folder.lower(), new_name, new_age, new_profession, new_category):
                             st.success(f"Folder '{new_folder}' created!")
                             st.balloons()
-                            try:
-                                st.rerun()
-                            except AttributeError:
-                                st.experimental_rerun()
+                            st.rerun()
                         else:
                             st.error("Failed to create folder. Check input or try a different name.")
                     else:
@@ -850,10 +756,7 @@ with st.sidebar:
                         if DatabaseManager.update_folder_name(folder_choice_name, new_name):
                             st.success(f"Name updated to '{new_name}'!")
                             st.balloons()
-                            try:
-                                st.rerun()
-                            except AttributeError:
-                                st.experimental_rerun()
+                            st.rerun()
                         else:
                             st.error("Failed to update name.")
                     else:
@@ -875,10 +778,9 @@ with st.sidebar:
                 if valid_files:
                     st.session_state.upload_previews = valid_files
                     st.session_state.upload_step = 1
-                    try:
-                        st.rerun()
-                    except AttributeError:
-                        st.experimental_rerun()
+                    st.session_state.upload_folder = folder_choice
+                    st.session_state.download_allowed = download_allowed
+                    st.rerun()
 
         with st.expander("🔄 Swap Image"):
             data = DatabaseManager.load_folders()
@@ -892,10 +794,7 @@ with st.sidebar:
                         if DatabaseManager.swap_image(folder_choice_swap, image_choice, new_image):
                             st.success(f"Image '{image_choice}' replaced!")
                             st.balloons()
-                            try:
-                                st.rerun()
-                            except AttributeError:
-                                st.experimental_rerun()
+                            st.rerun()
                         else:
                             st.error("Failed to swap image.")
                     else:
@@ -923,31 +822,18 @@ with st.sidebar:
                                 DatabaseManager.update_download_permission(folder_choice_perm, img_dict["name"], download_states[img_dict['name']])
                         st.success("Permissions updated!")
                         st.balloons()
-                        try:
-                            st.rerun()
-                        except AttributeError:
-                            st.experimental_rerun()
+                        st.rerun()
 
 # -------------------------------
 # Main App UI
 # -------------------------------
-search_query = st.session_state.get("search_query", "")
-data = DatabaseManager.load_folders(search_query)
-survey_data = DatabaseManager.load_survey_data()
+# Update search query from input
+if search_query != st.session_state.search_query:
+    st.session_state.search_query = search_query
+    st.rerun()
 
-# Update search query from header input
-st.markdown("""
-<script>
-document.getElementById("search_bar").addEventListener("input", function() {
-    const searchValue = this.value;
-    fetch("/_stcore/stream", {
-        method: "POST",
-        headers: {"Content-Type": "application/json"},
-        body: JSON.stringify({session_state: {search_query: searchValue}})
-    });
-});
-</script>
-""", unsafe_allow_html=True)
+data = DatabaseManager.load_folders(st.session_state.search_query)
+survey_data = DatabaseManager.load_survey_data()
 
 # Tabs for navigation
 categories = sorted(set(item["category"] for item in data))
@@ -1017,52 +903,8 @@ with tabs[1]:
                 st.markdown("</div>", unsafe_allow_html=True)
                 continue
 
-            base64_image = image_to_base64(file_data)
-            canvas_width = min(img.width, 300)
-            canvas_height = int(canvas_width * (img.height / img.width))
-            image_id = f"upload_crop_canvas_{i}"
-            st.markdown(
-                f"""
-                <div class="canvas-container">
-                    <canvas id="{image_id}" width="{canvas_width}" height="{canvas_height}" aria-label="Click and drag to crop {file.name}"></canvas>
-                    <input type="hidden" id="upload_crop_coords_{i}" name="upload_crop_coords_{i}">
-                </div>
-                <script>
-                    const uploadImg{i} = new Image();
-                    uploadImg{i}.src = "data:image/png;base64,{base64_image}";
-                    uploadImg{i}.onload = function() {{
-                        const canvas = document.getElementById('{image_id}');
-                        const ctx = canvas.getContext('2d');
-                        ctx.drawImage(uploadImg{i}, 0, 0, {canvas_width}, {canvas_height});
-                        initCropCanvas('{image_id}', {canvas_width}, {canvas_height}, true, {i});
-                    }};
-                </script>
-                """,
-                unsafe_allow_html=True
-            )
-
-            # Before-and-After Slider
-            before_img = Image.open(io.BytesIO(file_data))
-            before_base64 = image_to_base64(file_data)
-            after_img = before_img.copy()
-            after_data = file_data
-            container_id = f"before_after_{i}"
-            before_id = f"before_img_{i}"
-            after_id = f"after_img_{i}"
-            slider_id = f"slider_{i}"
-            st.markdown(
-                f"""
-                <div class="before-after-container" id="{container_id}">
-                    <img src="data:image/png;base64,{before_base64}" class="before-after-image" id="{before_id}" alt="Before image">
-                    <img src="data:image/png;base64,{before_base64}" class="before-after-image" id="{after_id}" alt="After image" style="position: absolute; clip: rect(0px, 150px, 200px, 0px);">
-                    <div class="slider" id="{slider_id}" style="left: 150px;"></div>
-                </div>
-                <script>
-                    initBeforeAfterSlider('{container_id}', '{before_id}', '{after_id}', '{slider_id}');
-                </script>
-                """,
-                unsafe_allow_html=True
-            )
+            # Display the image for editing
+            st.image(file_data, caption="Original Image", use_column_width=True)
 
             # Edit Controls
             with st.form(key=f"edit_upload_form_{i}"):
@@ -1071,25 +913,9 @@ with tabs[1]:
                 contrast = st.slider("Contrast", 0.0, 2.0, 1.0, step=0.1, key=f"upload_contrast_{i}", help="Adjust contrast")
                 sharpness = st.slider("Sharpness", 0.0, 2.0, 1.0, step=0.1, key=f"upload_sharpness_{i}", help="Adjust sharpness")
                 grayscale = st.checkbox("Grayscale", key=f"upload_grayscale_{i}", help="Convert to grayscale")
-                crop_coords_input = st.text_input("Crop Coordinates (JSON)", key=f"upload_crop_coords_input_{i}", disabled=True)
 
                 if st.form_submit_button("Apply Edits"):
                     edited_data = file_data
-                    if crop_coords_input:
-                        try:
-                            crop_coords = json.loads(crop_coords_input)
-                            scale_x = img.width / canvas_width
-                            scale_y = img.height / canvas_height
-                            crop_box = (
-                                int(crop_coords["left"] * scale_x),
-                                int(crop_coords["top"] * scale_y),
-                                int(crop_coords["right"] * scale_x),
-                                int(crop_coords["bottom"] * scale_y)
-                            )
-                            if crop_box[0] < crop_box[2] and crop_box[1] < crop_box[3]:
-                                edited_data = ImageProcessor.crop_image(edited_data, crop_box)
-                        except json.JSONDecodeError:
-                            st.error("Invalid crop coordinates")
                     if rotate_angle != 0:
                         edited_data = ImageProcessor.rotate_image(edited_data, rotate_angle)
                     if brightness != 1.0:
@@ -1104,19 +930,11 @@ with tabs[1]:
                         edited_data_list.append(edited_data)
                         st.session_state.upload_previews[i] = io.BytesIO(edited_data)
                         st.success("Edits applied! Preview updated.")
-                        try:
-                            st.rerun()
-                        except AttributeError:
-                            st.experimental_rerun()
+                        st.rerun()
 
             if st.button("Reset Edits", key=f"reset_upload_{i}", help="Revert to original image"):
-                if f"upload_crop_coords_input_{i}" in st.session_state:
-                    del st.session_state[f"upload_crop_coords_input_{i}"]
                 st.session_state.upload_previews[i] = io.BytesIO(file_data)
-                try:
-                    st.rerun()
-                except AttributeError:
-                    st.experimental_rerun()
+                st.rerun()
 
             st.markdown("</div>", unsafe_allow_html=True)
 
@@ -1125,10 +943,7 @@ with tabs[1]:
             if st.button("⬅️ Back to Upload", help="Return to upload selection"):
                 st.session_state.upload_step = 0
                 st.session_state.upload_previews = []
-                try:
-                    st.rerun()
-                except AttributeError:
-                    st.experimental_rerun()
+                st.rerun()
         with col2:
             if st.button("✅ Upload Images", help="Save all edited images"):
                 with st.spinner("Uploading images..."):
@@ -1140,10 +955,7 @@ with tabs[1]:
                 st.balloons()
                 st.session_state.upload_step = 0
                 st.session_state.upload_previews = []
-                try:
-                    st.rerun()
-                except AttributeError:
-                    st.experimental_rerun()
+                st.rerun()
     
     elif st.session_state.zoom_folder:
         folder = st.session_state.zoom_folder
@@ -1156,51 +968,18 @@ with tabs[1]:
 
         st.subheader(f"🖼️ Viewing {folder} ({idx+1}/{len(images)})")
         
-        if st.session_state.is_author:
-            image_id = f"crop_canvas_{folder}_{img_dict['name']}"
-            base64_image = img_dict["base64"]
-            max_width = 500
-            img = img_dict["image"]
-            aspect_ratio = img.width / img.height
-            canvas_width = min(img.width, max_width)
-            canvas_height = int(canvas_width / aspect_ratio)
-            st.markdown(
-                f"""
-                <div class="canvas-container">
-                    <canvas id="{image_id}" width="{canvas_width}" height="{canvas_height}" aria-label="Click and drag to crop image"></canvas>
-                    <input type="hidden" id="crop_coords" name="crop_coords">
-                </div>
-                <script>
-                    const img = new Image();
-                    img.src = "data:image/png;base64,{base64_image}";
-                    img.onload = function() {{
-                        const canvas = document.getElementById('{image_id}');
-                        const ctx = canvas.getContext('2d');
-                        ctx.drawImage(img, 0, 0, {canvas_width}, {canvas_height});
-                        initCropCanvas('{image_id}', {canvas_width}, {canvas_height});
-                    }};
-                </script>
-                """,
-                unsafe_allow_html=True
-            )
-        else:
-            st.image(img_dict["image"], use_container_width=True)
+        # Display the image
+        st.image(img_dict["image"], use_container_width=True)
 
         col1, col2, col3 = st.columns([1, 6, 1])
         with col1:
             if idx > 0 and st.button("◄ Previous", key=f"prev_{folder}", help="View previous image"):
                 st.session_state.zoom_index -= 1
-                try:
-                    st.rerun()
-                except AttributeError:
-                    st.experimental_rerun()
+                st.rerun()
         with col3:
             if idx < len(images) - 1 and st.button("Next ►", key=f"next_{folder}", help="View next image"):
                 st.session_state.zoom_index += 1
-                try:
-                    st.rerun()
-                except AttributeError:
-                    st.experimental_rerun()
+                st.rerun()
 
         if img_dict["download"]:
             mime = "image/jpeg" if img_dict["name"].lower().endswith(('.jpg', '.jpeg')) else "image/png"
@@ -1209,14 +988,6 @@ with tabs[1]:
         if st.session_state.is_author:
             with st.expander("✏️ Edit Image", expanded=True):
                 with st.form(key=f"edit_image_form_{folder}_{img_dict['name']}"):
-                    crop_coords_input = st.text_input("Crop Coordinates (JSON)", key=f"crop_coords_{folder}_{img_dict['name']}", disabled=True)
-                    if crop_coords_input:
-                        try:
-                            st.session_state.crop_coords = json.loads(crop_coords_input)
-                        except json.JSONDecodeError:
-                            st.session_state.crop_coords = None
-                            st.error("Invalid crop coordinates")
-
                     rotate_angle = st.slider("Rotate (degrees)", -180, 180, 0, key=f"rotate_{folder}_{img_dict['name']}", help="Rotate the image")
                     brightness = st.slider("Brightness", 0.0, 2.0, 1.0, step=0.1, key=f"brightness_{folder}_{img_dict['name']}", help="Adjust brightness")
                     contrast = st.slider("Contrast", 0.0, 2.0, 1.0, step=0.1, key=f"contrast_{folder}_{img_dict['name']}", help="Adjust contrast")
@@ -1229,18 +1000,6 @@ with tabs[1]:
                             DatabaseManager.save_image_history(image_id, folder, img_dict["data"])
 
                         edited_data = img_dict["data"]
-                        if st.session_state.crop_coords:
-                            scale_x = img.width / canvas_width
-                            scale_y = img.height / canvas_height
-                            crop_box = (
-                                int(st.session_state.crop_coords["left"] * scale_x),
-                                int(st.session_state.crop_coords["top"] * scale_y),
-                                int(st.session_state.crop_coords["right"] * scale_x),
-                                int(st.session_state.crop_coords["bottom"] * scale_y)
-                            )
-                            if crop_box[0] < crop_box[2] and crop_box[1] < crop_box[3]:
-                                edited_data = ImageProcessor.crop_image(edited_data, crop_box)
-                                st.session_state.crop_coords = None
                         if rotate_angle != 0:
                             edited_data = ImageProcessor.rotate_image(edited_data, rotate_angle)
                         if brightness != 1.0:
@@ -1262,10 +1021,7 @@ with tabs[1]:
                                 st.success("Image edited successfully!")
                                 st.balloons()
                                 logger.info(f"Applied edits to image '{img_dict['name']}' in folder '{folder}'")
-                                try:
-                                    st.rerun()
-                                except AttributeError:
-                                    st.experimental_rerun()
+                                st.rerun()
                             finally:
                                 conn.close()
                         else:
@@ -1275,10 +1031,7 @@ with tabs[1]:
                         if DatabaseManager.undo_image_edit(folder, img_dict["name"]):
                             st.success("Image restored!")
                             st.balloons()
-                            try:
-                                st.rerun()
-                            except AttributeError:
-                                st.experimental_rerun()
+                            st.rerun()
                         else:
                             st.error("No previous version available.")
 
@@ -1290,19 +1043,13 @@ with tabs[1]:
                 if len(DatabaseManager.get_images(folder)) == 0:
                     st.session_state.zoom_folder = None
                     st.session_state.zoom_index = 0
-                try:
-                    st.rerun()
-                except AttributeError:
-                    st.experimental_rerun()
+                st.rerun()
 
         if st.button("⬅️ Back to Gallery", key=f"back_{folder}", help="Return to gallery view"):
             st.session_state.zoom_folder = None
             st.session_state.zoom_index = 0
             st.session_state.crop_coords = None
-            try:
-                st.rerun()
-            except AttributeError:
-                st.experimental_rerun()
+            st.rerun()
 
     else:
         st.info("Select a category or use the search bar to explore folders.")
@@ -1321,16 +1068,13 @@ for cat, tab in zip(categories, tabs[2:-1]):
             images = DatabaseManager.get_images(f["folder"])
             if images:
                 st.markdown('<div class="image-grid">', unsafe_allow_html=True)
-                cols = st.columns(4 if st._is_running_with_streamlit else 3)
+                cols = st.columns(4)
                 for idx, img_dict in enumerate(images):
                     with cols[idx % len(cols)]:
                         if st.button("🔍 View", key=f"view_{f['folder']}_{idx}", help=f"View details for image {idx+1}"):
                             st.session_state.zoom_folder = f["folder"]
                             st.session_state.zoom_index = idx
-                            try:
-                                st.rerun()
-                            except AttributeError:
-                                st.experimental_rerun()
+                            st.rerun()
                         st.image(img_dict["thumbnail"], use_container_width=True, caption=f"Image {idx+1}")
                 st.markdown('</div>', unsafe_allow_html=True)
             else:
@@ -1345,10 +1089,7 @@ for cat, tab in zip(categories, tabs[2:-1]):
                         DatabaseManager.save_survey_data(f["folder"], rating, feedback, timestamp)
                         st.success("Feedback submitted!")
                         st.balloons()
-                        try:
-                            st.rerun()
-                        except AttributeError:
-                            st.experimental_rerun()
+                        st.rerun()
 
                 if f["folder"] in survey_data and survey_data[f["folder"]]:
                     st.write("### Previous Feedback")
@@ -1370,10 +1111,7 @@ for cat, tab in zip(categories, tabs[2:-1]):
                                     DatabaseManager.delete_survey_entry(f["folder"], entry["timestamp"])
                                     st.success("Feedback deleted!")
                                     st.balloons()
-                                    try:
-                                        st.rerun()
-                                    except AttributeError:
-                                        st.experimental_rerun()
+                                    st.rerun()
                 else:
                     st.info("No feedback yet — share your thoughts!")
 
