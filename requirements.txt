@@ -4,3 +4,4 @@ python-dotenv
 rembg
 onnxruntime
 torch
+names
