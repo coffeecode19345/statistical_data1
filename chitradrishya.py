@@ -1,4 +1,3 @@
-```python
 import streamlit as st
 import sqlite3
 import io
@@ -1205,4 +1204,4 @@ else:
             st.rerun()
         except AttributeError:
             st.experimental_rerun()
-```
+
