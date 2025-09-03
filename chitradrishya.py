@@ -104,7 +104,7 @@ class DatabaseManager:
             c.execute("""
                 CREATE TABLE IF NOT EXISTS folders (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    folder TEXT UNIQUE NOT NOT NULL,
+                    folder TEXT UNIQUE NOT NULL,
                     name TEXT NOT NULL,
                     age INTEGER NOT NULL,
                     profession TEXT NOT NULL,
