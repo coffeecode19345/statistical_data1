@@ -33,6 +33,12 @@ def image_to_base64(image_data):
         raise ValueError("image_data must be bytes")
     return base64.b64encode(image_data).decode('utf-8')
 
+def thumbnail_to_bytes(image):
+    """Convert PIL Image to bytes."""
+    output = io.BytesIO()
+    image.save(output, format="PNG")
+    return output.getvalue()
+
 def validate_folder_name(folder):
     """Validate folder name: alphanumeric, underscores, lowercase, 3-20 characters."""
     pattern = r"^[a-z0-9_]{3,20}$"
@@ -234,6 +240,9 @@ class DatabaseManager:
         conn = DatabaseManager.connect()
         try:
             c = conn.cursor()
+            c.execute("SELECT COUNT(*) FROM folders WHERE folder = ?", (folder,))
+            if c.fetchone()[0] == 0:
+                raise ValueError(f"Folder '{folder}' does not exist")
             for edited_data in edited_data_list:
                 extension = ".png"
                 random_filename = f"{uuid.uuid4()}{extension}"
@@ -243,6 +252,9 @@ class DatabaseManager:
                               (random_filename, folder, edited_data, download_allowed))
             conn.commit()
             logger.info(f"Uploaded {len(edited_data_list)} images to folder '{folder}'")
+        except ValueError as e:
+            logger.error(f"Error uploading images: {str(e)}")
+            st.error(f"Error uploading images: {str(e)}")
         except sqlite3.OperationalError as e:
             logger.error(f"SQLite error during image upload: {str(e)}")
             st.error(f"Failed to upload images: {str(e)}")
@@ -536,6 +548,7 @@ except sqlite3.OperationalError as e:
     logger.error(f"Database initialization failed: {str(e)}")
     st.stop()
 
+# Initialize session state
 if "zoom_folder" not in st.session_state:
     st.session_state.zoom_folder = None
 if "zoom_index" not in st.session_state:
@@ -559,8 +572,53 @@ if "form_download_allowed" not in st.session_state:
 if "edit_history" not in st.session_state:
     st.session_state.edit_history = {}
 
+# JavaScript for persistent login state
+st.markdown("""
+<script>
+function setCookie(name, value, days) {
+    let expires = "";
+    if (days) {
+        let date = new Date();
+        date.setTime(date.getTime() + (days * 24 * 60 * 60 * 1000));
+        expires = "; expires=" + date.toUTCString();
+    }
+    document.cookie = name + "=" + value + expires + "; path=/";
+}
+
+function getCookie(name) {
+    let nameEQ = name + "=";
+    let ca = document.cookie.split(';');
+    for(let i = 0; i < ca.length; i++) {
+        let c = ca[i];
+        while (c.charAt(0) == ' ') c = c.substring(1, c.length);
+        if (c.indexOf(nameEQ) == 0) return c.substring(nameEQ.length, c.length);
+    }
+    return null;
+}
+
+// Restore is_author state on page load
+window.addEventListener('load', function() {
+    let isAuthor = getCookie('is_author');
+    if (isAuthor === 'true') {
+        // Trigger Streamlit to update session state
+        let input = document.createElement('input');
+        input.type = 'hidden';
+        input.id = 'restore_is_author';
+        input.value = 'true';
+        document.body.appendChild(input);
+    }
+});
+</script>
+""", unsafe_allow_html=True)
+
+# Check for restored is_author state
+restore_is_author = st_javascript("document.getElementById('restore_is_author') ? document.getElementById('restore_is_author').value : ''")
+if restore_is_author == 'true' and not st.session_state.is_author:
+    st.session_state.is_author = True
+    logger.info("Restored admin login state from cookie")
+
 # -------------------------------
-# CSS and JavaScript
+# CSS and JavaScript for UI
 # -------------------------------
 st.markdown("""
 <style>
@@ -794,6 +852,7 @@ with st.sidebar:
                     st.balloons()
                     st.success("Logged in as admin!")
                     logger.info("Admin logged in")
+                    st.markdown("<script>setCookie('is_author', 'true', 1);</script>", unsafe_allow_html=True)
                     st.rerun()
                 else:
                     st.error("Incorrect password")
@@ -803,6 +862,7 @@ with st.sidebar:
             st.session_state.is_author = False
             st.success("Logged out")
             logger.info("Admin logged out")
+            st.markdown("<script>setCookie('is_author', 'false', 1);</script>", unsafe_allow_html=True)
             st.rerun()
 
         with st.expander("📁 Add New Folder"):
@@ -845,6 +905,7 @@ with st.sidebar:
             data = DatabaseManager.load_folders()
             with st.form(key="upload_images_form"):
                 folder_choice = st.selectbox("Select Folder", [item["folder"] for item in data], key="upload_folder")
+                st.markdown(f"**Uploading to folder: {folder_choice}**")
                 download_allowed = st.checkbox("Allow Downloads for New Images", value=True, help="Allow users to download these images")
                 uploaded_files = st.file_uploader(
                     "Upload Images", accept_multiple_files=True, type=['jpg', 'jpeg', 'png'], key="upload_files",
@@ -857,17 +918,29 @@ with st.sidebar:
                     if len(valid_files) != len(uploaded_files):
                         st.warning("Some files were invalid or corrupted and skipped.")
                     if valid_files:
-                        # Store both file and original data
-                        st.session_state.upload_previews = [
-                            {"file": f, "data": f.read(), "original_data": f.read()} for f in valid_files
-                        ]
-                        for f in valid_files:
-                            f.seek(0)  # Reset file pointer
-                        st.session_state.upload_step = 1
-                        st.session_state.form_upload_folder = folder_choice
-                        st.session_state.form_download_allowed = download_allowed
-                        st.session_state.edit_history = {f["file"].name: [] for f in st.session_state.upload_previews}
-                        st.rerun()
+                        # Verify folder exists
+                        conn = DatabaseManager.connect()
+                        try:
+                            c = conn.cursor()
+                            c.execute("SELECT COUNT(*) FROM folders WHERE folder = ?", (folder_choice,))
+                            if c.fetchone()[0] == 0:
+                                st.error(f"Selected folder '{folder_choice}' does not exist.")
+                                logger.error(f"Attempted to upload to non-existent folder '{folder_choice}'")
+                            else:
+                                # Store both file and original data
+                                st.session_state.upload_previews = [
+                                    {"file": f, "data": f.read(), "original_data": f.read()} for f in valid_files
+                                ]
+                                for f in valid_files:
+                                    f.seek(0)  # Reset file pointer
+                                st.session_state.upload_step = 1
+                                st.session_state.form_upload_folder = folder_choice
+                                st.session_state.form_download_allowed = download_allowed
+                                st.session_state.edit_history = {f["file"].name: [] for f in st.session_state.upload_previews}
+                                st.success(f"Proceeding to edit images for folder '{folder_choice}'")
+                                st.rerun()
+                        finally:
+                            conn.close()
                     else:
                         st.error("No valid files uploaded. Please check file types and sizes.")
                 elif submit_button and not uploaded_files:
@@ -973,7 +1046,7 @@ with tabs[0]:
 # Gallery Tab (for upload step or zoom view)
 with tabs[1]:
     if st.session_state.upload_step == 1 and st.session_state.is_author:
-        st.subheader("🖼️ Image Editor")
+        st.subheader(f"🖼️ Image Editor for {st.session_state.form_upload_folder}")
         folder_choice = st.session_state.get("form_upload_folder", data[0]["folder"] if data else "")
         valid_files = st.session_state.upload_previews
         
@@ -1133,7 +1206,7 @@ with tabs[1]:
                     for j in range(len(edited_data_list)):
                         progress_bar.progress((j + 1) / len(edited_data_list))
                     DatabaseManager.load_images_to_db(edited_data_list, folder_choice, st.session_state.get("form_download_allowed", True))
-                st.success(f"{len(edited_data_list)} image(s) uploaded!")
+                st.success(f"{len(edited_data_list)} image(s) uploaded to '{folder_choice}'!")
                 st.balloons()
                 st.session_state.upload_step = 0
                 st.session_state.upload_previews = []
@@ -1366,7 +1439,7 @@ with tabs[-1]:
     - **Admin Access**: Log in via the sidebar to manage content.
 
     ### Admin Tools
-    1. **Login**: Enter the admin password in the sidebar.
+    1. **Login**: Enter the admin password in the sidebar (login persists across refreshes).
     2. **Add Folders**: Create new folders with a name, age, profession, and category.
     3. **Upload Images**: Select a folder, upload images, and edit them with the advanced editor.
     4. **Edit Images**: Use the crop canvas, adjust colors, and preview changes in real-time.
@@ -1382,10 +1455,7 @@ with tabs[-1]:
     - Use the dark mode toggle for better visibility.
     - Images must be JPG/PNG and under 5MB.
     - Ensure crop coordinates are within image bounds to avoid errors.
+    - Admin login persists for 1 day; use the Logout button to end the session.
     """)
 
-def thumbnail_to_bytes(image):
-    """Convert PIL Image to bytes."""
-    output = io.BytesIO()
-    image.save(output, format="PNG")
-    return output.getvalue()
+Let me know if this resolves the issues or if further refinements are needed!
