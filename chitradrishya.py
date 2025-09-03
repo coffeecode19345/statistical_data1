@@ -345,6 +345,10 @@ if "dark_mode" not in st.session_state:
     st.session_state.dark_mode = False
 if "search_query" not in st.session_state:
     st.session_state.search_query = ""
+if "upload_step" not in st.session_state:
+    st.session_state.upload_step = 0
+if "edit_history" not in st.session_state:
+    st.session_state.edit_history = {}
 
 # JavaScript for persistent login state
 st.markdown("""
@@ -524,7 +528,7 @@ with col1:
 with col2:
     search_query = st.text_input("Search folders...", value=st.session_state.search_query, key="search_input", placeholder="Name, profession, or category")
 with col3:
-    if st.button("🌙 Dark Mode"):
+    if st.button("🌙 Dark Mode", key="toggle_dark_mode"):
         st.session_state.dark_mode = not st.session_state.dark_mode
         st.rerun()
 
@@ -546,7 +550,7 @@ with st.sidebar:
                 else:
                     st.error("Wrong password.")
     else:
-        if st.button("🔓 Logout"):
+        if st.button("🔓 Logout", key="logout_button"):
             st.session_state.is_author = False
             st.success("Logged out")
             st.markdown("<script>setCookie('is_author', 'false', 1);</script>", unsafe_allow_html=True)
@@ -559,7 +563,7 @@ with st.sidebar:
                 new_age = st.number_input("Age", min_value=1, max_value=150, value=30)
                 new_profession = st.text_input("Profession", placeholder="e.g., Photographer")
                 new_category = st.selectbox("Category", ["Artists", "Engineers", "Teachers"])
-                if st.form_submit_button("➕ Add"):
+                if st.form_submit_button("➕ Add", key="add_folder_button"):
                     if new_folder and new_name and new_profession and new_category:
                         if DatabaseManager.add_folder(new_folder.lower(), new_name, new_age, new_profession, new_category):
                             st.success(f"Folder '{new_folder}' created!")
@@ -575,7 +579,7 @@ with st.sidebar:
                 uploaded_files = st.file_uploader("Choose Photos", accept_multiple_files=True, type=['jpg', 'png'], key="upload_files")
                 col1, col2 = st.columns(2)
                 with col1:
-                    if st.form_submit_button("✅ Upload"):
+                    if st.form_submit_button("✅ Upload", key="upload_direct_button"):
                         if uploaded_files:
                             valid_files = [f for f in uploaded_files if validate_file(f)]
                             if valid_files:
@@ -588,7 +592,7 @@ with st.sidebar:
                         else:
                             st.error("Select at least one photo.")
                 with col2:
-                    if st.form_submit_button("✏️ Edit & Upload"):
+                    if st.form_submit_button("✏️ Edit & Upload", key="upload_edit_button"):
                         if uploaded_files:
                             valid_files = [f for f in uploaded_files if validate_file(f)]
                             if valid_files:
@@ -701,7 +705,7 @@ for cat, tab in zip(categories, tabs[1:-1]):
                         rotate_angle = st.slider("Rotate (degrees)", -180, 180, 0)
                         col1, col2 = st.columns(2)
                         with col1:
-                            if st.form_submit_button("💾 Save Edits"):
+                            if st.form_submit_button("💾 Save Edits", key=f"save_edit_{selected_index}"):
                                 edited_data = file_dict["data"]
                                 crop_coords = st.session_state.crop_coords.get(file_dict["file"].name)
                                 if apply_crop and crop_coords:
@@ -719,14 +723,14 @@ for cat, tab in zip(categories, tabs[1:-1]):
                                     st.success("Edits saved!")
                                     st.rerun()
                         with col2:
-                            if st.form_submit_button("↩️ Undo"):
+                            if st.form_submit_button("↩️ Undo", key=f"undo_edit_{selected_index}"):
                                 if st.session_state.edit_history[file_dict["file"].name]:
                                     valid_files[selected_index]["data"] = st.session_state.edit_history[file_dict["file"].name].pop()
                                     st.session_state.upload_previews = valid_files
                                     st.success("Edit undone!")
                                     st.rerun()
 
-                if st.button("🔄 Reset"):
+                if st.button("🔄 Reset", key=f"reset_edit_{selected_index}"):
                     valid_files[selected_index]["data"] = file_dict["original_data"]
                     st.session_state.upload_previews = valid_files
                     st.session_state.edit_history[file_dict["file"].name] = []
@@ -737,7 +741,7 @@ for cat, tab in zip(categories, tabs[1:-1]):
                 st.markdown("</div>", unsafe_allow_html=True)
                 col1, col2 = st.columns(2)
                 with col1:
-                    if st.button("⬅️ Back"):
+                    if st.button("⬅️ Back", key="back_to_upload"):
                         st.session_state.upload_step = 0
                         st.session_state.upload_previews = []
                         st.session_state.form_upload_folder = None
@@ -746,7 +750,7 @@ for cat, tab in zip(categories, tabs[1:-1]):
                         st.session_state.crop_coords = {}
                         st.rerun()
                 with col2:
-                    if st.button("✅ Save All"):
+                    if st.button("✅ Save All", key="save_all_uploads"):
                         DatabaseManager.load_images_to_db(valid_files, st.session_state.form_upload_folder, st.session_state.form_download_allowed)
                         st.success(f"{len(valid_files)} photo(s) saved!")
                         st.balloons()
@@ -772,17 +776,17 @@ for cat, tab in zip(categories, tabs[1:-1]):
 
             col1, col2, col3 = st.columns([1, 8, 1])
             with col1:
-                if idx > 0 and st.button("◄ Previous"):
+                if idx > 0 and st.button("◄ Previous", key=f"prev_{folder}_{idx}"):
                     st.session_state.zoom_index -= 1
                     st.rerun()
             with col3:
-                if idx < len(images) - 1 and st.button("Next ►"):
+                if idx < len(images) - 1 and st.button("Next ►", key=f"next_{folder}_{idx}"):
                     st.session_state.zoom_index += 1
                     st.rerun()
 
             if img_dict["download"]:
                 mime, _ = mimetypes.guess_type(img_dict["name"])
-                st.download_button("⬇️ Download", data=img_dict["data"], file_name=img_dict["name"], mime=mime)
+                st.download_button("⬇️ Download", data=img_dict["data"], file_name=img_dict["name"], mime=mime, key=f"download_{folder}_{idx}")
 
             if st.session_state.is_author:
                 with st.expander("✏️ Edit Photo"):
@@ -821,7 +825,7 @@ for cat, tab in zip(categories, tabs[1:-1]):
                         rotate_angle = st.slider("Rotate (degrees)", -180, 180, 0)
                         col1, col2 = st.columns(2)
                         with col1:
-                            if st.form_submit_button("💾 Save"):
+                            if st.form_submit_button("💾 Save", key=f"save_image_{folder}_{idx}"):
                                 image_id = DatabaseManager.get_image_id(folder, img_dict["name"])
                                 if image_id:
                                     DatabaseManager.save_image_history(image_id, folder, img_dict["data"])
@@ -845,13 +849,13 @@ for cat, tab in zip(categories, tabs[1:-1]):
                                     st.balloons()
                                     st.rerun()
                         with col2:
-                            if st.form_submit_button("↩️ Undo"):
+                            if st.form_submit_button("↩️ Undo", key=f"undo_image_{folder}_{idx}"):
                                 if DatabaseManager.undo_image_edit(folder, img_dict["name"]):
                                     st.success("Photo restored!")
                                     st.balloons()
                                     st.rerun()
 
-                if st.button("🗑️ Delete Photo"):
+                if st.button("🗑️ Delete Photo", key=f"delete_{folder}_{idx}"):
                     DatabaseManager.delete_image(folder, img_dict["name"])
                     st.success("Photo deleted!")
                     st.balloons()
@@ -861,7 +865,7 @@ for cat, tab in zip(categories, tabs[1:-1]):
                         st.session_state.zoom_index = 0
                     st.rerun()
 
-            if st.button("⬅️ Back to Gallery"):
+            if st.button("⬅️ Back to Gallery", key=f"back_{folder}_{idx}"):
                 st.session_state.zoom_folder = None
                 st.session_state.zoom_index = 0
                 st.session_state.crop_coords = {}
@@ -891,7 +895,7 @@ for cat, tab in zip(categories, tabs[1:-1]):
                     with st.form(key=f"survey_form_{f['folder']}"):
                         rating = st.slider("Rating (1-5)", 1, 5, 3, key=f"rating_{f['folder']}")
                         feedback = st.text_area("Comments", key=f"feedback_{f['folder']}", placeholder="Your thoughts...")
-                        if st.form_submit_button("✅ Submit"):
+                        if st.form_submit_button("✅ Submit", key=f"submit_survey_{f['folder']}"):
                             timestamp = datetime.now().isoformat()
                             DatabaseManager.save_survey_data(f["folder"], rating, feedback, timestamp)
                             st.success("Feedback submitted!")
