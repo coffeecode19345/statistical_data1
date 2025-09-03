@@ -956,7 +956,7 @@ with st.sidebar:
 
         with st.expander("🔄 Swap Image"):
             data = DatabaseManager.load_folders()
-            folder_choice_swap: Swap Image
+            #folder_choice_swap: Swap Image
             folder_choice_swap = st.selectbox("Select Folder", [item["folder"] for item in data], key="swap_folder")
             images = DatabaseManager.get_images(folder_choice_swap)
             if images:
