@@ -1,7 +1,7 @@
 import streamlit as st
 import sqlite3
 import io
-from PIL import Image, ImageEnhance
+from PIL import Image
 import os
 from datetime import datetime
 import uuid
@@ -9,13 +9,12 @@ import re
 import base64
 from dotenv import load_dotenv
 import logging
-import json
 import names
 import plotly.express as px
 try:
     from streamlit_javascript import st_javascript
 except ImportError:
-    st_javascript = lambda x: ""  # Fallback to empty string if package is missing
+    st_javascript = lambda x: ""  # Fallback if package is missing
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -56,12 +55,12 @@ def validate_file(file):
     """Validate uploaded file size, type, and integrity."""
     file_size_bytes = len(file.getvalue())
     if file_size_bytes > MAX_FILE_SIZE_MB * 1024 * 1024:
-        st.error(f"File {file.name} exceeds {MAX_FILE_SIZE_MB}MB limit.")
+        st.error(f"File '{file.name}' is too large (max {MAX_FILE_SIZE_MB}MB).")
         logger.warning(f"File {file.name} exceeds size limit")
         return False
     file_type = file.type if hasattr(file, 'type') and file.type else os.path.splitext(file.name)[1].lower()
     if file_type not in ['image/jpeg', 'image/png', '.jpg', '.jpeg', '.png']:
-        st.error(f"File {file.name} is not a supported type (JPG, JPEG, PNG).")
+        st.error(f"File '{file.name}' must be JPG or PNG.")
         logger.warning(f"Unsupported file type for {file.name}: {file_type}")
         return False
     try:
@@ -69,7 +68,7 @@ def validate_file(file):
         Image.open(file).verify()  # Verify image integrity
         file.seek(0)  # Reset file pointer
     except Exception as e:
-        st.error(f"File {file.name} is corrupted or invalid.")
+        st.error(f"File '{file.name}' is invalid or corrupted.")
         logger.error(f"Corrupted file {file.name}: {str(e)}")
         return False
     return True
@@ -87,7 +86,7 @@ class DatabaseManager:
             return sqlite3.connect(DB_PATH)
         except sqlite3.OperationalError as e:
             logger.error(f"Failed to connect to database at {DB_PATH}: {str(e)}")
-            st.error(f"Database connection failed: {str(e)}")
+            st.error("Cannot connect to the database. Please try again later.")
             raise
 
     @staticmethod
@@ -96,7 +95,7 @@ class DatabaseManager:
         db_dir = os.path.dirname(DB_PATH) or "."
         if not os.access(db_dir, os.W_OK):
             logger.error(f"Directory {db_dir} is not writable")
-            st.error(f"Cannot write to database directory: {db_dir}")
+            st.error("Cannot write to the database directory. Check permissions.")
             raise PermissionError(f"Directory {db_dir} is not writable")
 
         if FORCE_DB_RESET and os.path.exists(DB_PATH):
@@ -105,7 +104,7 @@ class DatabaseManager:
                 logger.info(f"Deleted existing database file {DB_PATH} due to FORCE_DB_RESET")
             except Exception as e:
                 logger.error(f"Failed to delete database file {DB_PATH}: {str(e)}")
-                st.error(f"Failed to reset database: {str(e)}")
+                st.error("Failed to reset the database. Please try again.")
                 raise
 
         conn = DatabaseManager.connect()
@@ -174,7 +173,7 @@ class DatabaseManager:
             logger.info("Database initialized successfully")
         except sqlite3.OperationalError as e:
             logger.error(f"SQLite error during database initialization: {str(e)}")
-            st.error(f"Database initialization failed: {str(e)}")
+            st.error("Failed to set up the database. Please try again.")
             raise
         finally:
             conn.close()
@@ -205,7 +204,7 @@ class DatabaseManager:
             return True
         except Exception as e:
             logger.error(f"Error updating folder name: {str(e)}")
-            st.error(f"Error updating folder name: {str(e)}")
+            st.error("Failed to update folder name. Please try again.")
             return False
         finally:
             conn.close()
@@ -215,7 +214,7 @@ class DatabaseManager:
         """Add a new folder to the database with validation."""
         if not validate_folder_name(folder):
             logger.warning(f"Invalid folder name: {folder}")
-            st.error("Folder name must be 3-20 characters, lowercase alphanumeric or underscores.")
+            st.error("Folder name must be 3-20 lowercase letters, numbers, or underscores (e.g., 'artist4').")
             return False
         conn = DatabaseManager.connect()
         try:
@@ -229,39 +228,39 @@ class DatabaseManager:
             return True
         except sqlite3.IntegrityError:
             logger.warning(f"Folder '{folder}' already exists")
-            st.error(f"Folder '{folder}' already exists.")
+            st.error(f"Folder '{folder}' already exists. Try a different name.")
             return False
         except Exception as e:
             logger.error(f"Error adding folder: {str(e)}")
-            st.error(f"Error adding folder: {str(e)}")
+            st.error("Failed to create folder. Please try again.")
             return False
         finally:
             conn.close()
 
     @staticmethod
-    def load_images_to_db(edited_data_list, folder, download_allowed=True):
-        """Load edited images into the database."""
+    def load_images_to_db(image_data_list, folder, download_allowed=True):
+        """Load images into the database."""
         conn = DatabaseManager.connect()
         try:
             c = conn.cursor()
             c.execute("SELECT COUNT(*) FROM folders WHERE folder = ?", (folder,))
             if c.fetchone()[0] == 0:
                 raise ValueError(f"Folder '{folder}' does not exist")
-            for edited_data in edited_data_list:
+            for image_data in image_data_list:
                 extension = ".png"
                 random_filename = f"{uuid.uuid4()}{extension}"
                 c.execute("SELECT COUNT(*) FROM images WHERE folder = ? AND name = ?", (folder, random_filename))
                 if c.fetchone()[0] == 0:
                     c.execute("INSERT INTO images (name, folder, image_data, download_allowed) VALUES (?, ?, ?, ?)",
-                              (random_filename, folder, edited_data, download_allowed))
+                              (random_filename, folder, image_data, download_allowed))
             conn.commit()
-            logger.info(f"Uploaded {len(edited_data_list)} images to folder '{folder}'")
+            logger.info(f"Uploaded {len(image_data_list)} images to folder '{folder}'")
         except ValueError as e:
             logger.error(f"Error uploading images: {str(e)}")
-            st.error(f"Error uploading images: {str(e)}")
+            st.error(f"Error: {str(e)}")
         except sqlite3.OperationalError as e:
-            logger.error(f"SQLite error during image upload: {str(e)}")
-            st.error(f"Failed to upload images: {str(e)}")
+            logger.error(f"Database error during image upload: {str(e)}")
+            st.error("Failed to upload images. Please try again.")
         finally:
             conn.close()
 
@@ -279,7 +278,7 @@ class DatabaseManager:
             return True
         except Exception as e:
             logger.error(f"Error swapping image: {str(e)}")
-            st.error(f"Error swapping image: {str(e)}")
+            st.error("Failed to replace image. Please try again.")
             return False
         finally:
             conn.close()
@@ -337,7 +336,7 @@ class DatabaseManager:
             return False
         except Exception as e:
             logger.error(f"Error undoing image edit: {str(e)}")
-            st.error(f"Error undoing image edit: {str(e)}")
+            st.error("Failed to undo edit. No previous version available.")
             return False
         finally:
             conn.close()
@@ -422,7 +421,7 @@ class DatabaseManager:
                 name, data, download = r
                 try:
                     img = Image.open(io.BytesIO(data))
-                    thumbnail = ImageProcessor.generate_thumbnail(img, size=(80, 80))  # Smaller thumbnails
+                    thumbnail = ImageProcessor.generate_thumbnail(img, size=(80, 80))
                     base64_image = image_to_base64(data)
                     images.append({
                         "name": name,
@@ -434,7 +433,7 @@ class DatabaseManager:
                     })
                 except Exception as e:
                     logger.error(f"Error loading image {name}: {str(e)}")
-                    st.error(f"Error loading image {name}: {str(e)}")
+                    st.error(f"Error loading image {name}. It may be corrupted.")
             logger.info(f"Loaded {len(images)} images for folder '{folder}'")
             return images
         finally:
@@ -462,7 +461,7 @@ class ImageProcessor:
             return output.getvalue()
         except Exception as e:
             logger.error(f"Error cropping image: {str(e)}")
-            st.error(f"Error cropping image: {str(e)}")
+            st.error("Failed to crop image. Ensure the crop area is within the image.")
             return None
 
     @staticmethod
@@ -477,69 +476,7 @@ class ImageProcessor:
             return output.getvalue()
         except Exception as e:
             logger.error(f"Error rotating image: {str(e)}")
-            st.error(f"Error rotating image: {str(e)}")
-            return None
-
-    @staticmethod
-    def adjust_brightness(image_data, factor):
-        """Adjust image brightness."""
-        try:
-            img = Image.open(io.BytesIO(image_data)).convert("RGB")
-            enhancer = ImageEnhance.Brightness(img)
-            adjusted_img = enhancer.enhance(factor)
-            output = io.BytesIO()
-            adjusted_img.save(output, format="PNG")
-            logger.info(f"Adjusted brightness with factor {factor}")
-            return output.getvalue()
-        except Exception as e:
-            logger.error(f"Error adjusting brightness: {str(e)}")
-            st.error(f"Error adjusting brightness: {str(e)}")
-            return None
-
-    @staticmethod
-    def adjust_contrast(image_data, factor):
-        """Adjust image contrast."""
-        try:
-            img = Image.open(io.BytesIO(image_data)).convert("RGB")
-            enhancer = ImageEnhance.Contrast(img)
-            adjusted_img = enhancer.enhance(factor)
-            output = io.BytesIO()
-            adjusted_img.save(output, format="PNG")
-            logger.info(f"Adjusted contrast with factor {factor}")
-            return output.getvalue()
-        except Exception as e:
-            logger.error(f"Error adjusting contrast: {str(e)}")
-            st.error(f"Error adjusting contrast: {str(e)}")
-            return None
-
-    @staticmethod
-    def adjust_sharpness(image_data, factor):
-        """Adjust image sharpness."""
-        try:
-            img = Image.open(io.BytesIO(image_data)).convert("RGB")
-            enhancer = ImageEnhance.Sharpness(img)
-            adjusted_img = enhancer.enhance(factor)
-            output = io.BytesIO()
-            adjusted_img.save(output, format="PNG")
-            logger.info(f"Adjusted sharpness with factor {factor}")
-            return output.getvalue()
-        except Exception as e:
-            logger.error(f"Error adjusting sharpness: {str(e)}")
-            st.error(f"Error adjusting sharpness: {str(e)}")
-            return None
-
-    @staticmethod
-    def convert_to_grayscale(image_data):
-        """Convert image to grayscale."""
-        try:
-            img = Image.open(io.BytesIO(image_data)).convert("L")
-            output = io.BytesIO()
-            img.save(output, format="PNG")
-            logger.info("Converted image to grayscale")
-            return output.getvalue()
-        except Exception as e:
-            logger.error(f"Error converting to grayscale: {str(e)}")
-            st.error(f"Error converting to grayscale: {str(e)}")
+            st.error("Failed to rotate image. Please try again.")
             return None
 
 # -------------------------------
@@ -548,7 +485,7 @@ class ImageProcessor:
 try:
     DatabaseManager.init_db()
 except sqlite3.OperationalError as e:
-    st.error(f"Failed to initialize database: {str(e)}")
+    st.error("Failed to set up the database. Please try again.")
     logger.error(f"Database initialization failed: {str(e)}")
     st.stop()
 
@@ -600,11 +537,9 @@ function getCookie(name) {
     return null;
 }
 
-// Restore is_author state on page load
 window.addEventListener('load', function() {
     let isAuthor = getCookie('is_author');
     if (isAuthor === 'true') {
-        // Trigger Streamlit to update session state
         let input = document.createElement('input');
         input.type = 'hidden';
         input.id = 'restore_is_author';
@@ -623,7 +558,6 @@ try:
         logger.info("Restored admin login state from cookie")
 except Exception as e:
     logger.warning(f"Failed to execute st_javascript: {str(e)}")
-    restore_is_author = ''
 
 # -------------------------------
 # CSS and JavaScript for UI
@@ -631,7 +565,7 @@ except Exception as e:
 st.markdown("""
 <style>
 body {
-    font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+    font-family: 'Arial', sans-serif;
     background: var(--bg-color, #f5f5f5);
     color: var(--text-color, #1a1a1a);
 }
@@ -642,9 +576,6 @@ body {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    position: sticky;
-    top: 0;
-    z-index: 100;
 }
 .header h1 {
     margin: 0;
@@ -653,101 +584,55 @@ body {
 }
 .folder-card {
     background: var(--card-bg, #ffffff);
-    border-radius: 12px;
-    padding: 1.5rem;
-    margin-bottom: 1.5rem;
-    box-shadow: 0 4px 12px rgba(0,0,0,0.08);
-    transition: transform 0.2s;
-}
-.folder-card:hover {
-    transform: translateY(-2px);
+    border-radius: 10px;
+    padding: 1rem;
+    margin-bottom: 1rem;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.1);
 }
 .folder-header {
-    font-size: 1.4rem;
-    font-weight: 600;
+    font-size: 1.2rem;
+    font-weight: bold;
     color: var(--text-color, #1a1a1a);
-    margin-bottom: 1rem;
+    margin-bottom: 0.5rem;
 }
 .image-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
-    gap: 1rem;
+    grid-template-columns: repeat(auto-fill, minmax(100px, 1fr));
+    gap: 0.5rem;
 }
 img {
-    border-radius: 8px;
+    border-radius: 5px;
     object-fit: cover;
     width: 100%;
 }
 .edit-container {
     display: flex;
-    gap: 2rem;
+    gap: 1rem;
     padding: 1rem;
     background: var(--card-bg, #ffffff);
-    border-radius: 12px;
-    box-shadow: 0 4px 12px rgba(0,0,0,0.08);
+    border-radius: 10px;
 }
 .canvas-container {
     position: relative;
-    display: inline-block;
-    margin: 1rem 0;
+    margin: 0.5rem 0;
 }
 #cropCanvas {
     border: 2px solid #007bff;
-    border-radius: 8px;
-}
-.selection-box {
-    position: absolute;
-    border: 2px dashed #007bff;
-    background: rgba(0,123,255,0.2);
-    pointer-events: none;
+    border-radius: 5px;
 }
 .stButton>button {
-    border-radius: 8px;
+    border-radius: 5px;
     padding: 0.5rem 1rem;
-    font-weight: 500;
-    transition: background-color 0.2s;
+    font-size: 1rem;
 }
 .stButton>button:hover {
     background-color: #e6f0ff;
-}
-.preview-container {
-    border: 1px solid var(--border-color, #e0e0e0);
-    padding: 1rem;
-    margin-bottom: 1rem;
-    border-radius: 12px;
-    background: var(--card-bg, #ffffff);
-}
-.before-after-container {
-    position: relative;
-    width: 100%;
-    max-width: 400px;
-    height: 300px;
-    margin: 1rem 0;
-}
-.before-after-image {
-    width: 100%;
-    height: 100%;
-    object-fit: contain;
-    border-radius: 8px;
-}
-.slider {
-    position: absolute;
-    width: 4px;
-    height: 100%;
-    background: #007bff;
-    cursor: ew-resize;
-}
-.thumbnail-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(80px, 1fr));
-    gap: 0.5rem;
-    margin-bottom: 1rem;
 }
 .thumbnail-grid img {
     cursor: pointer;
     border: 2px solid transparent;
 }
-.thumbnail-grid img:hover, .thumbnail-grid img.selected {
+.thumbnail-grid img.selected {
     border: 2px solid #007bff;
 }
 :root {
@@ -840,33 +725,33 @@ col1, col2, col3 = st.columns([2, 1, 1])
 with col1:
     st.title("🖼️ Photo Gallery")
 with col2:
-    search_query = st.text_input("Search folders...", value=st.session_state.search_query, key="search_input")
+    search_query = st.text_input("Search folders...", value=st.session_state.search_query, key="search_input", placeholder="Type name, profession, or category")
 with col3:
     if st.button("🌙 Toggle Dark Mode"):
         st.session_state.dark_mode = not st.session_state.dark_mode
         st.rerun()
 
 # -------------------------------
-# Sidebar: Author Controls
+# Sidebar: Admin Controls
 # -------------------------------
 with st.sidebar:
-    st.subheader("🛠️ Admin Tools", help="Manage gallery content (requires login)")
+    st.subheader("🛠️ Admin Tools", help="Log in to manage photos and folders")
     if not st.session_state.is_author:
         with st.form(key="login_form"):
-            pwd = st.text_input("Admin Password", type="password", help="Enter the admin password to access management tools")
+            pwd = st.text_input("Admin Password", type="password", placeholder="Enter admin password")
             if st.form_submit_button("🔐 Login"):
                 if pwd == ADMIN_PASSWORD:
                     st.session_state.is_author = True
                     st.balloons()
-                    st.success("Logged in as admin!")
+                    st.success("You're logged in as admin!")
                     logger.info("Admin logged in")
                     st.markdown("<script>setCookie('is_author', 'true', 1);</script>", unsafe_allow_html=True)
                     st.rerun()
                 else:
-                    st.error("Incorrect password")
+                    st.error("Wrong password. Try again.")
                     logger.warning("Failed login attempt")
     else:
-        if st.button("🔓 Logout", help="Log out of admin mode"):
+        if st.button("🔓 Logout"):
             st.session_state.is_author = False
             st.success("Logged out")
             logger.info("Admin logged out")
@@ -876,11 +761,11 @@ with st.sidebar:
         with st.expander("📁 Add New Folder"):
             with st.form(key="add_folder_form"):
                 st.markdown("**Create a new folder**")
-                new_folder = st.text_input("Folder Name", help="Use lowercase alphanumeric or underscores (3-20 characters)")
-                new_name = st.text_input("Person Name", help="Enter the full name")
-                new_age = st.number_input("Age", min_value=1, max_value=150, step=1, help="Enter age")
-                new_profession = st.text_input("Profession", help="Enter profession")
-                new_category = st.selectbox("Category", ["Artists", "Engineers", "Teachers"], help="Select category")
+                new_folder = st.text_input("Folder Name", placeholder="e.g., artist4", help="Use lowercase letters, numbers, or underscores (3-20 characters)")
+                new_name = st.text_input("Person Name", placeholder="e.g., Jane Smith")
+                new_age = st.number_input("Age", min_value=1, max_value=150, value=30)
+                new_profession = st.text_input("Profession", placeholder="e.g., Photographer")
+                new_category = st.selectbox("Category", ["Artists", "Engineers", "Teachers"])
                 if st.form_submit_button("➕ Add Folder"):
                     if new_folder and new_name and new_profession and new_category:
                         if DatabaseManager.add_folder(new_folder.lower(), new_name, new_age, new_profession, new_category):
@@ -888,90 +773,87 @@ with st.sidebar:
                             st.balloons()
                             st.rerun()
                         else:
-                            st.error("Failed to create folder. Check input or try a different name.")
+                            st.error("Failed to create folder. Check the folder name.")
                     else:
                         st.error("Please fill in all fields.")
 
-        with st.expander("✏️ Edit Folder Name"):
-            data = DatabaseManager.load_folders()
-            folder_choice_name = st.selectbox("Select Folder", [item["folder"] for item in data], key="edit_name_folder")
-            current_name = next(item["name"] for item in data if item["folder"] == folder_choice_name)
-            with st.form(key="edit_name_form"):
-                new_name = st.text_input("New Name", value=current_name, help="Enter the new name for the candidate")
-                if st.form_submit_button("💾 Update Name"):
-                    if new_name:
-                        if DatabaseManager.update_folder_name(folder_choice_name, new_name):
-                            st.success(f"Name updated to '{new_name}'!")
-                            st.balloons()
-                            st.rerun()
-                        else:
-                            st.error("Failed to update name.")
-                    else:
-                        st.error("Please enter a valid name.")
-
-        with st.expander("🖼️ Upload Images"):
+        with st.expander("🖼️ Upload Photos"):
             data = DatabaseManager.load_folders()
             with st.form(key="upload_images_form"):
                 folder_choice = st.selectbox("Select Folder", [item["folder"] for item in data], key="upload_folder")
-                st.markdown(f"**Uploading to folder: {folder_choice}**")
-                download_allowed = st.checkbox("Allow Downloads for New Images", value=True, help="Allow users to download these images")
-                uploaded_files = st.file_uploader(
-                    "Upload Images", accept_multiple_files=True, type=['jpg', 'jpeg', 'png'], key="upload_files",
-                    help=f"Select JPG/PNG images (max {MAX_FILE_SIZE_MB}MB each)"
-                )
-                submit_button = st.form_submit_button("➡️ Proceed to Edit")
-
-                if submit_button and uploaded_files:
-                    valid_files = [f for f in uploaded_files if validate_file(f)]
-                    if len(valid_files) != len(uploaded_files):
-                        st.warning("Some files were invalid or corrupted and skipped.")
-                    if valid_files:
-                        # Verify folder exists
-                        conn = DatabaseManager.connect()
-                        try:
-                            c = conn.cursor()
-                            c.execute("SELECT COUNT(*) FROM folders WHERE folder = ?", (folder_choice,))
-                            if c.fetchone()[0] == 0:
-                                st.error(f"Selected folder '{folder_choice}' does not exist.")
-                                logger.error(f"Attempted to upload to non-existent folder '{folder_choice}'")
+                st.markdown(f"**Uploading to: {folder_choice}**")
+                download_allowed = st.checkbox("Allow Downloads", value=True, help="Let others download these photos")
+                uploaded_files = st.file_uploader("Choose Photos", accept_multiple_files=True, type=['jpg', 'png'], key="upload_files", help="Select JPG or PNG files (max 5MB each)")
+                col1, col2 = st.columns(2)
+                with col1:
+                    if st.form_submit_button("✅ Upload Now"):
+                        if uploaded_files:
+                            valid_files = [f for f in uploaded_files if validate_file(f)]
+                            if valid_files:
+                                with st.spinner("Uploading photos..."):
+                                    DatabaseManager.load_images_to_db([f.read() for f in valid_files], folder_choice, download_allowed)
+                                st.success(f"{len(valid_files)} photo(s) uploaded to '{folder_choice}'!")
+                                st.balloons()
+                                st.rerun()
                             else:
-                                # Store both file and original data
+                                st.error("No valid photos uploaded. Check file types and sizes.")
+                        else:
+                            st.error("Please select at least one photo.")
+                with col2:
+                    if st.form_submit_button("✏️ Edit & Upload"):
+                        if uploaded_files:
+                            valid_files = [f for f in uploaded_files if validate_file(f)]
+                            if valid_files:
                                 st.session_state.upload_previews = [
                                     {"file": f, "data": f.read(), "original_data": f.read()} for f in valid_files
                                 ]
                                 for f in valid_files:
-                                    f.seek(0)  # Reset file pointer
+                                    f.seek(0)
                                 st.session_state.upload_step = 1
                                 st.session_state.form_upload_folder = folder_choice
                                 st.session_state.form_download_allowed = download_allowed
                                 st.session_state.edit_history = {f["file"].name: [] for f in st.session_state.upload_previews}
-                                st.success(f"Proceeding to edit images for folder '{folder_choice}'")
+                                st.success(f"Ready to edit photos for '{folder_choice}'")
                                 st.rerun()
-                        finally:
-                            conn.close()
-                    else:
-                        st.error("No valid files uploaded. Please check file types and sizes.")
-                elif submit_button and not uploaded_files:
-                    st.error("Please upload at least one image.")
+                            else:
+                                st.error("No valid photos uploaded. Check file types and sizes.")
+                        else:
+                            st.error("Please select at least one photo.")
 
-        with st.expander("🔄 Swap Image"):
+        with st.expander("✏️ Rename Folder"):
             data = DatabaseManager.load_folders()
-            #folder_choice_swap: Swap Image
-            folder_choice_swap = st.selectbox("Select Folder", [item["folder"] for item in data], key="swap_folder")
-            images = DatabaseManager.get_images(folder_choice_swap)
-            if images:
-                image_choice = st.selectbox("Select Image to Replace", [img["name"] for img in images], key="swap_image")
-                new_image = st.file_uploader("Upload New Image", type=['jpg', 'jpeg', 'png'], key="swap_upload")
-                if st.button("🔄 Swap Image", help="Replace the selected image"):
-                    if new_image and validate_file(new_image):
-                        if DatabaseManager.swap_image(folder_choice_swap, image_choice, new_image):
-                            st.success(f"Image '{image_choice}' replaced!")
+            folder_choice_name = st.selectbox("Select Folder", [item["folder"] for item in data], key="edit_name_folder")
+            current_name = next(item["name"] for item in data if item["folder"] == folder_choice_name)
+            with st.form(key="edit_name_form"):
+                new_name = st.text_input("New Name", value=current_name, placeholder="e.g., John Doe")
+                if st.form_submit_button("💾 Save Name"):
+                    if new_name:
+                        if DatabaseManager.update_folder_name(folder_choice_name, new_name):
+                            st.success(f"Name changed to '{new_name}'!")
                             st.balloons()
                             st.rerun()
                         else:
-                            st.error("Failed to swap image.")
+                            st.error("Failed to change name.")
                     else:
-                        st.error("Please upload a valid image.")
+                        st.error("Please enter a name.")
+
+        with st.expander("🔄 Replace Photo"):
+            data = DatabaseManager.load_folders()
+            folder_choice_swap = st.selectbox("Select Folder", [item["folder"] for item in data], key="swap_folder")
+            images = DatabaseManager.get_images(folder_choice_swap)
+            if images:
+                image_choice = st.selectbox("Select Photo", [img["name"][:8] + "..." + img["name"][-4:] for img in images], key="swap_image")
+                new_image = st.file_uploader("Choose New Photo", type=['jpg', 'png'], key="swap_upload")
+                if st.button("🔄 Replace Photo"):
+                    if new_image and validate_file(new_image):
+                        if DatabaseManager.swap_image(folder_choice_swap, images[[img["name"] for img in images].index(image_choice)]["name"], new_image):
+                            st.success("Photo replaced!")
+                            st.balloons()
+                            st.rerun()
+                        else:
+                            st.error("Failed to replace photo.")
+                    else:
+                        st.error("Please upload a valid JPG or PNG photo.")
 
         with st.expander("🔒 Download Permissions"):
             data = DatabaseManager.load_folders()
@@ -979,17 +861,16 @@ with st.sidebar:
             images = DatabaseManager.get_images(folder_choice_perm)
             if images:
                 with st.form(key=f"download_permissions_form_{folder_choice_perm}"):
-                    st.write("Toggle Download Permissions:")
+                    st.write("Choose which photos can be downloaded:")
                     download_states = {}
                     for img_dict in images:
                         toggle_key = f"download_toggle_{folder_choice_perm}_{img_dict['name']}"
                         download_states[img_dict['name']] = st.checkbox(
-                            f"Allow download for {img_dict['name'][:8]}...{img_dict['name'][-4:]}",
+                            f"Allow {img_dict['name'][:8]}...{img_dict['name'][-4:]}",
                             value=img_dict["download"],
-                            key=toggle_key,
-                            help=f"Toggle download permission for {img_dict['name']}"
+                            key=toggle_key
                         )
-                    if st.form_submit_button("💾 Apply Permissions"):
+                    if st.form_submit_button("💾 Save Permissions"):
                         for img_dict in images:
                             if download_states[img_dict['name']] != img_dict["download"]:
                                 DatabaseManager.update_download_permission(folder_choice_perm, img_dict["name"], download_states[img_dict['name']])
@@ -1000,7 +881,6 @@ with st.sidebar:
 # -------------------------------
 # Main App UI
 # -------------------------------
-# Update search query from input
 if search_query != st.session_state.search_query:
     st.session_state.search_query = search_query
     st.rerun()
@@ -1008,7 +888,6 @@ if search_query != st.session_state.search_query:
 data = DatabaseManager.load_folders(st.session_state.search_query)
 survey_data = DatabaseManager.load_survey_data()
 
-# Tabs for navigation
 categories = sorted(set(item["category"] for item in data))
 tab_names = ["Home", "Gallery"] + categories + ["Help"]
 tabs = st.tabs(tab_names)
@@ -1016,14 +895,14 @@ tabs = st.tabs(tab_names)
 # Home Tab
 with tabs[0]:
     st.markdown("## Welcome to the Photo Gallery! 🎉")
-    st.write("Explore images, provide feedback, or manage content as an admin.")
+    st.write("Browse photos, give feedback, or log in as admin to manage content.")
     st.markdown("""
-    - **Browse**: View images by category (Artists, Engineers, Teachers).
-    - **Search**: Use the top search bar to find folders by name, profession, or category.
-    - **Feedback**: Rate and comment on folders.
-    - **Admin Tools**: Log in (sidebar) to upload, edit, or manage images and folders.
+    - **Browse**: Click category tabs (Artists, Engineers, Teachers) to see photos.
+    - **Search**: Use the search bar to find folders by name or profession.
+    - **Feedback**: Rate folders and add comments.
+    - **Admin**: Log in (sidebar) to add or edit photos and folders.
     """)
-    st.markdown("### Average Ratings")
+    st.markdown("### Folder Ratings")
     ratings = []
     folder_names = []
     for f in data:
@@ -1042,7 +921,7 @@ with tabs[0]:
             range_y=[0, 5]
         )
         fig.update_layout(
-            title="Average Ratings per Folder",
+            title="Average Ratings",
             xaxis_title="Folder",
             yaxis_title="Rating (1-5)",
             showlegend=False,
@@ -1050,44 +929,40 @@ with tabs[0]:
         )
         st.plotly_chart(fig, use_container_width=True)
     else:
-        st.info("No survey data available yet.")
+        st.info("No ratings yet. Add feedback to see ratings here!")
 
-# Gallery Tab (for upload step or zoom view)
+# Gallery Tab (for upload/edit or zoom view)
 with tabs[1]:
     if st.session_state.upload_step == 1 and st.session_state.is_author:
-        st.subheader(f"🖼️ Image Editor for {st.session_state.form_upload_folder}")
-        folder_choice = st.session_state.get("form_upload_folder", data[0]["folder"] if data else "")
+        st.subheader(f"🖼️ Editing Photos for {st.session_state.form_upload_folder}")
         valid_files = st.session_state.upload_previews
         
-        # Thumbnail selection
-        st.markdown("### Select Image to Edit")
+        st.markdown("### Choose a Photo to Edit")
         cols = st.columns(5)
         selected_index = st.session_state.get("selected_image_index", 0)
         for idx, file_dict in enumerate(valid_files):
             with cols[idx % 5]:
                 thumbnail = ImageProcessor.generate_thumbnail(Image.open(io.BytesIO(file_dict["data"])), size=(80, 80))
                 base64_thumb = image_to_base64(thumbnail_to_bytes(thumbnail))
+                caption = file_dict["file"].name[:10] + "..." if len(file_dict["file"].name) > 10 else file_dict["file"].name
                 if st.image(
                     f"data:image/png;base64,{base64_thumb}",
-                    caption=file_dict["file"].name[:10] + "..." if len(file_dict["file"].name) > 10 else file_dict["file"].name,
-                    use_column_width=True
+                    caption=caption,
+                    use_column_width=True,
+                    output_format="PNG"
                 ):
                     st.session_state.selected_image_index = idx
                     st.rerun()
 
-        # Main edit interface
         if valid_files:
             file_dict = valid_files[selected_index]
             st.markdown(f"<div class='edit-container'>", unsafe_allow_html=True)
             
-            # Left column: Canvas and Previews
             with st.container():
-                st.markdown("### Edit Preview")
+                st.markdown(f"### Editing: {file_dict['file'].name}")
                 img = Image.open(io.BytesIO(file_dict["data"]))
-                file_size_mb = len(file_dict["data"]) / (1024 * 1024)
-                st.write(f"**Editing: {file_dict['file'].name}** (Size: {file_size_mb:.2f} MB, Dimensions: {img.width}x{img.height})")
+                st.write(f"Size: {len(file_dict['data']) / (1024 * 1024):.2f} MB, Dimensions: {img.width}x{img.height}")
                 
-                # Crop Canvas
                 base64_image = image_to_base64(file_dict["data"])
                 canvas_id = f"cropCanvas_{selected_index}"
                 image_id = f"editImage_{selected_index}"
@@ -1104,8 +979,6 @@ with tabs[1]:
                 </script>
                 """, unsafe_allow_html=True)
                 
-                # Side-by-side preview
-                st.markdown("### Before & After")
                 col1, col2 = st.columns(2)
                 with col1:
                     st.markdown("**Original**")
@@ -1113,44 +986,18 @@ with tabs[1]:
                 with col2:
                     st.markdown("**Edited**")
                     st.image(file_dict["data"], use_column_width=True)
-                
-                # Crop preview
-                crop_coords = st.session_state.crop_coords.get(file_dict["file"].name)
-                if crop_coords:
-                    cropped_data = ImageProcessor.crop_image(file_dict["data"], (
-                        crop_coords["x"], crop_coords["y"],
-                        crop_coords["x"] + crop_coords["width"],
-                        crop_coords["y"] + crop_coords["height"]
-                    ))
-                    if cropped_data:
-                        st.markdown("**Crop Preview**")
-                        st.image(cropped_data, use_column_width=True)
             
-            # Right column: Edit Controls
             with st.container():
                 with st.form(key=f"edit_upload_form_{selected_index}"):
-                    st.markdown("### Editing Tools")
-                    
-                    with st.expander("🔲 Crop & Rotate", expanded=True):
-                        apply_crop = st.checkbox("Apply Crop", key=f"apply_crop_{selected_index}")
-                        crop_coords_input = st.text_input(
-                            "Crop Coordinates (x, y, width, height)",
-                            value=json.dumps(st.session_state.crop_coords.get(file_dict["file"].name, {})),
-                            key=f"crop_input_{selected_index}",
-                            disabled=True
-                        )
-                        rotate_angle = st.slider("Rotate (degrees)", -180, 180, 0, key=f"upload_rotate_{selected_index}", help="Rotate the image")
-                    
-                    with st.expander("🎨 Color Adjustments"):
-                        brightness = st.slider("Brightness", 0.0, 2.0, 1.0, step=0.1, key=f"upload_brightness_{selected_index}", help="Adjust brightness")
-                        contrast = st.slider("Contrast", 0.0, 2.0, 1.0, step=0.1, key=f"upload_contrast_{selected_index}", help="Adjust contrast")
-                        sharpness = st.slider("Sharpness", 0.0, 2.0, 1.0, step=0.1, key=f"upload_sharpness_{selected_index}", help="Adjust sharpness")
-                        grayscale = st.checkbox("Grayscale", key=f"upload_grayscale_{selected_index}", help="Convert to grayscale")
+                    st.markdown("### Edit Options")
+                    apply_crop = st.checkbox("Apply Crop", key=f"apply_crop_{selected_index}", help="Check to apply the cropped area")
+                    rotate_angle = st.slider("Rotate (degrees)", -180, 180, 0, key=f"upload_rotate_{selected_index}", help="Rotate the photo")
                     
                     col1, col2 = st.columns(2)
                     with col1:
-                        if st.form_submit_button("💾 Apply Edits"):
+                        if st.form_submit_button("💾 Save Edits"):
                             edited_data = file_dict["data"]
+                            crop_coords = st.session_state.crop_coords.get(file_dict["file"].name)
                             if apply_crop and crop_coords:
                                 edited_data = ImageProcessor.crop_image(edited_data, (
                                     crop_coords["x"], crop_coords["y"],
@@ -1159,47 +1006,36 @@ with tabs[1]:
                                 ))
                             if rotate_angle != 0:
                                 edited_data = ImageProcessor.rotate_image(edited_data, rotate_angle)
-                            if brightness != 1.0:
-                                edited_data = ImageProcessor.adjust_brightness(edited_data, brightness)
-                            if contrast != 1.0:
-                                edited_data = ImageProcessor.adjust_contrast(edited_data, contrast)
-                            if sharpness != 1.0:
-                                edited_data = ImageProcessor.adjust_sharpness(edited_data, sharpness)
-                            if grayscale:
-                                edited_data = ImageProcessor.convert_to_grayscale(edited_data)
                             if edited_data:
-                                # Save to edit history
                                 st.session_state.edit_history[file_dict["file"].name].append(file_dict["data"])
-                                # Update preview
                                 valid_files[selected_index]["data"] = edited_data
                                 st.session_state.upload_previews = valid_files
-                                st.success("Edits applied!")
+                                st.success("Edits saved!")
                                 st.rerun()
                     
                     with col2:
-                        if st.form_submit_button("↩️ Undo Last Edit"):
+                        if st.form_submit_button("↩️ Undo Edit"):
                             if st.session_state.edit_history[file_dict["file"].name]:
                                 valid_files[selected_index]["data"] = st.session_state.edit_history[file_dict["file"].name].pop()
                                 st.session_state.upload_previews = valid_files
-                                st.success("Last edit undone!")
+                                st.success("Edit undone!")
                                 st.rerun()
                             else:
-                                st.error("No previous edits to undo.")
+                                st.error("No edits to undo.")
 
-                if st.button("🔄 Reset to Original", key=f"reset_upload_{selected_index}", help="Revert to original image"):
+                if st.button("🔄 Reset Photo", key=f"reset_upload_{selected_index}", help="Revert to original photo"):
                     valid_files[selected_index]["data"] = file_dict["original_data"]
                     st.session_state.upload_previews = valid_files
                     st.session_state.edit_history[file_dict["file"].name] = []
                     st.session_state.crop_coords[file_dict["file"].name] = {}
-                    st.success("Reset to original image!")
+                    st.success("Photo reset to original!")
                     st.rerun()
 
             st.markdown("</div>", unsafe_allow_html=True)
         
-        # Navigation buttons
-        col1, col2 = st.columns([1, 1])
+        col1, col2 = st.columns(2)
         with col1:
-            if st.button("⬅️ Back to Upload", help="Return to upload selection"):
+            if st.button("⬅️ Back to Upload"):
                 st.session_state.upload_step = 0
                 st.session_state.upload_previews = []
                 st.session_state.form_upload_folder = None
@@ -1208,14 +1044,11 @@ with tabs[1]:
                 st.session_state.crop_coords = {}
                 st.rerun()
         with col2:
-            if st.button("✅ Upload Images", help="Save all edited images"):
-                with st.spinner("Uploading images..."):
-                    progress_bar = st.progress(0)
+            if st.button("✅ Save All Photos"):
+                with st.spinner("Saving photos..."):
                     edited_data_list = [f["data"] for f in valid_files]
-                    for j in range(len(edited_data_list)):
-                        progress_bar.progress((j + 1) / len(edited_data_list))
-                    DatabaseManager.load_images_to_db(edited_data_list, folder_choice, st.session_state.get("form_download_allowed", True))
-                st.success(f"{len(edited_data_list)} image(s) uploaded to '{folder_choice}'!")
+                    DatabaseManager.load_images_to_db(edited_data_list, st.session_state.form_upload_folder, st.session_state.form_download_allowed)
+                st.success(f"{len(edited_data_list)} photo(s) saved to '{st.session_state.form_upload_folder}'!")
                 st.balloons()
                 st.session_state.upload_step = 0
                 st.session_state.upload_previews = []
@@ -1235,27 +1068,24 @@ with tabs[1]:
         img_dict = images[idx]
 
         st.subheader(f"🖼️ Viewing {folder} ({idx+1}/{len(images)})")
-        
-        # Display the image
         st.image(img_dict["image"], use_column_width=True)
 
         col1, col2, col3 = st.columns([1, 6, 1])
         with col1:
-            if idx > 0 and st.button("◄ Previous", key=f"prev_{folder}", help="View previous image"):
+            if idx > 0 and st.button("◄ Previous"):
                 st.session_state.zoom_index -= 1
                 st.rerun()
         with col3:
-            if idx < len(images) - 1 and st.button("Next ►", key=f"next_{folder}", help="View next image"):
+            if idx < len(images) - 1 and st.button("Next ►"):
                 st.session_state.zoom_index += 1
                 st.rerun()
 
         if img_dict["download"]:
             mime = "image/jpeg" if img_dict["name"].lower().endswith(('.jpg', '.jpeg')) else "image/png"
-            st.download_button("⬇️ Download", data=img_dict["data"], file_name=img_dict["name"], mime=mime, help="Download this image")
+            st.download_button("⬇️ Download", data=img_dict["data"], file_name=img_dict["name"], mime=mime)
 
         if st.session_state.is_author:
-            with st.expander("✏️ Edit Image", expanded=True):
-                # Crop Canvas
+            with st.expander("✏️ Edit Photo"):
                 base64_image = img_dict["base64"]
                 canvas_id = f"cropCanvas_zoom_{idx}"
                 image_id = f"editImage_zoom_{idx}"
@@ -1272,8 +1102,6 @@ with tabs[1]:
                 </script>
                 """, unsafe_allow_html=True)
                 
-                # Side-by-side preview
-                st.markdown("### Before & After")
                 col1, col2 = st.columns(2)
                 with col1:
                     st.markdown("**Original**")
@@ -1291,29 +1119,15 @@ with tabs[1]:
                     st.image(edited_data, use_column_width=True)
 
                 with st.form(key=f"edit_image_form_{folder}_{img_dict['name']}"):
-                    with st.expander("🔲 Crop & Rotate", expanded=True):
-                        apply_crop = st.checkbox("Apply Crop", key=f"apply_crop_zoom_{idx}")
-                        crop_coords_input = st.text_input(
-                            "Crop Coordinates (x, y, width, height)",
-                            value=json.dumps(st.session_state.crop_coords.get(img_dict["name"], {})),
-                            key=f"crop_input_zoom_{idx}",
-                            disabled=True
-                        )
-                        rotate_angle = st.slider("Rotate (degrees)", -180, 180, 0, key=f"rotate_{folder}_{img_dict['name']}", help="Rotate the image")
+                    apply_crop = st.checkbox("Apply Crop", help="Check to apply the cropped area")
+                    rotate_angle = st.slider("Rotate (degrees)", -180, 180, 0, help="Rotate the photo")
                     
-                    with st.expander("🎨 Color Adjustments"):
-                        brightness = st.slider("Brightness", 0.0, 2.0, 1.0, step=0.1, key=f"brightness_{folder}_{img_dict['name']}", help="Adjust brightness")
-                        contrast = st.slider("Contrast", 0.0, 2.0, 1.0, step=0.1, key=f"contrast_{folder}_{img_dict['name']}", help="Adjust contrast")
-                        sharpness = st.slider("Sharpness", 0.0, 2.0, 1.0, step=0.1, key=f"sharpness_{folder}_{img_dict['name']}", help="Adjust sharpness")
-                        grayscale = st.checkbox("Grayscale", key=f"grayscale_{folder}_{img_dict['name']}", help="Convert to grayscale")
-
                     col1, col2 = st.columns(2)
                     with col1:
-                        if st.form_submit_button("💾 Apply Edits"):
+                        if st.form_submit_button("💾 Save Edits"):
                             image_id = DatabaseManager.get_image_id(folder, img_dict["name"])
                             if image_id:
                                 DatabaseManager.save_image_history(image_id, folder, img_dict["data"])
-
                             edited_data = img_dict["data"]
                             if apply_crop and crop_coords:
                                 edited_data = ImageProcessor.crop_image(edited_data, (
@@ -1323,15 +1137,6 @@ with tabs[1]:
                                 ))
                             if rotate_angle != 0:
                                 edited_data = ImageProcessor.rotate_image(edited_data, rotate_angle)
-                            if brightness != 1.0:
-                                edited_data = ImageProcessor.adjust_brightness(edited_data, brightness)
-                            if contrast != 1.0:
-                                edited_data = ImageProcessor.adjust_contrast(edited_data, contrast)
-                            if sharpness != 1.0:
-                                edited_data = ImageProcessor.adjust_sharpness(edited_data, sharpness)
-                            if grayscale:
-                                edited_data = ImageProcessor.convert_to_grayscale(edited_data)
-
                             if edited_data:
                                 conn = DatabaseManager.connect()
                                 try:
@@ -1339,27 +1144,23 @@ with tabs[1]:
                                     c.execute("UPDATE images SET image_data = ? WHERE folder = ? AND name = ?",
                                               (edited_data, folder, img_dict["name"]))
                                     conn.commit()
-                                    st.success("Image edited successfully!")
+                                    st.success("Photo edited!")
                                     st.balloons()
                                     logger.info(f"Applied edits to image '{img_dict['name']}' in folder '{folder}'")
                                     st.rerun()
                                 finally:
                                     conn.close()
-                            else:
-                                st.error("Failed to edit image.")
                     
                     with col2:
-                        if st.form_submit_button("↩️ Undo Last Edit"):
+                        if st.form_submit_button("↩️ Undo Edit"):
                             if DatabaseManager.undo_image_edit(folder, img_dict["name"]):
-                                st.success("Image restored!")
+                                st.success("Photo restored!")
                                 st.balloons()
                                 st.rerun()
-                            else:
-                                st.error("No previous version available.")
 
-            if st.button("🗑️ Delete Image", key=f"delete_{folder}_{img_dict['name']}", help="Delete this image"):
+            if st.button("🗑️ Delete Photo"):
                 DatabaseManager.delete_image(folder, img_dict["name"])
-                st.success("Image deleted!")
+                st.success("Photo deleted!")
                 st.balloons()
                 st.session_state.zoom_index = max(0, idx - 1)
                 if len(DatabaseManager.get_images(folder)) == 0:
@@ -1367,14 +1168,14 @@ with tabs[1]:
                     st.session_state.zoom_index = 0
                 st.rerun()
 
-        if st.button("⬅️ Back to Gallery", key=f"back_{folder}", help="Return to gallery view"):
+        if st.button("⬅️ Back to Gallery"):
             st.session_state.zoom_folder = None
             st.session_state.zoom_index = 0
             st.session_state.crop_coords = {}
             st.rerun()
 
     else:
-        st.info("Select a category or use the search bar to explore folders.")
+        st.info("Select a category or search to view photos.")
 
 # Category Tabs
 for cat, tab in zip(categories, tabs[2:-1]):
@@ -1382,8 +1183,7 @@ for cat, tab in zip(categories, tabs[2:-1]):
         cat_folders = [f for f in data if f["category"] == cat]
         for f in cat_folders:
             st.markdown(
-                f'<div class="folder-card" role="region" aria-label="{f["name"]} folder">'
-                f'<div class="folder-header">{f["name"]} ({f["age"]}, {f["profession"]})</div>',
+                f'<div class="folder-card"><div class="folder-header">{f["name"]} ({f["age"]}, {f["profession"]})</div>',
                 unsafe_allow_html=True
             )
 
@@ -1393,19 +1193,19 @@ for cat, tab in zip(categories, tabs[2:-1]):
                 cols = st.columns(4)
                 for idx, img_dict in enumerate(images):
                     with cols[idx % len(cols)]:
-                        if st.button("🔍 View", key=f"view_{f['folder']}_{idx}", help=f"View details for image {idx+1}"):
+                        if st.button("🔍 View", key=f"view_{f['folder']}_{idx}"):
                             st.session_state.zoom_folder = f["folder"]
                             st.session_state.zoom_index = idx
                             st.rerun()
-                        st.image(img_dict["thumbnail"], use_column_width=True, caption=f"Image {idx+1}")
+                        st.image(img_dict["thumbnail"], use_column_width=True, caption=f"Photo {idx+1}")
                 st.markdown('</div>', unsafe_allow_html=True)
             else:
-                st.warning(f"No images found for {f['name']}")
+                st.warning(f"No photos found for {f['name']}")
 
             with st.expander(f"📝 Feedback for {f['name']}"):
                 with st.form(key=f"survey_form_{f['folder']}"):
-                    rating = st.slider("Rating (1-5)", 1, 5, 3, key=f"rating_{f['folder']}", help="Rate this folder")
-                    feedback = st.text_area("Feedback", key=f"feedback_{f['folder']}", help="Share your thoughts")
+                    rating = st.slider("Rating (1-5)", 1, 5, 3, key=f"rating_{f['folder']}", help="Rate this folder (1 = poor, 5 = excellent)")
+                    feedback = st.text_area("Comments", key=f"feedback_{f['folder']}", placeholder="Share your thoughts (optional)")
                     if st.form_submit_button("✅ Submit Feedback"):
                         timestamp = datetime.now().isoformat()
                         DatabaseManager.save_survey_data(f["folder"], rating, feedback, timestamp)
@@ -1423,46 +1223,45 @@ for cat, tab in zip(categories, tabs[2:-1]):
                         with cols[0]:
                             rating_display = "⭐" * entry["rating"]
                             st.markdown(
-                                f"- {rating_display} — {entry['feedback']}  \n"
+                                f"- {rating_display} — {entry['feedback'] or 'No comment'}  \n"
                                 f"<sub>🕒 {entry['timestamp']}</sub>",
                                 unsafe_allow_html=True
                             )
                         if st.session_state.is_author:
                             with cols[1]:
-                                if st.button("🗑️", key=f"delete_survey_{f['folder']}_{entry['timestamp']}", help="Delete this feedback"):
+                                if st.button("🗑️", key=f"delete_survey_{f['folder']}_{entry['timestamp']}"):
                                     DatabaseManager.delete_survey_entry(f["folder"], entry["timestamp"])
                                     st.success("Feedback deleted!")
                                     st.balloons()
                                     st.rerun()
                 else:
-                    st.info("No feedback yet — share your thoughts!")
+                    st.info("No feedback yet. Be the first to share!")
 
 # Help Tab
 with tabs[-1]:
     st.markdown("## 📖 Help & Guide")
     st.markdown("""
     ### Getting Started
-    - **Browse**: Use the category tabs or search bar to find folders.
-    - **View Images**: Click 🔍 to zoom in on an image.
-    - **Provide Feedback**: Rate and comment on folders in the feedback section.
-    - **Admin Access**: Log in via the sidebar to manage content.
+    - **Browse Photos**: Use the category tabs (Artists, Engineers, Teachers) to view folders.
+    - **View Photos**: Click 🔍 to see a larger version of a photo.
+    - **Search**: Type in the search bar to find folders by name or profession.
+    - **Feedback**: Rate folders (1-5 stars) and add comments.
 
-    ### Admin Tools
-    1. **Login**: Enter the admin password in the sidebar (login persists across refreshes).
+    ### Admin Guide
+    1. **Log In**: Enter the admin password in the sidebar to unlock tools.
     2. **Add Folders**: Create new folders with a name, age, profession, and category.
-    3. **Upload Images**: Select a folder, upload images, and edit them with the advanced editor.
-    4. **Edit Images**: Use the crop canvas, adjust colors, and preview changes in real-time.
-    5. **Manage Permissions**: Control which images can be downloaded.
-
-    ### Image Editor
-    - **Crop Canvas**: Click and drag to select a crop area, then apply the crop.
-    - **Before & After**: View original and edited images side by side.
-    - **Batch Editing**: Select thumbnails to edit multiple images.
-    - **Undo/Reset**: Undo individual edits or reset to the original image.
+    3. **Upload Photos**:
+       - Choose a folder and select JPG/PNG photos (max 5MB each).
+       - Click "Upload Now" to save directly or "Edit & Upload" to edit first.
+    4. **Edit Photos**:
+       - Click a thumbnail to select a photo.
+       - Drag on the canvas to crop, or use the rotate slider.
+       - Click "Save Edits" to apply changes, or "Undo Edit" to revert.
+    5. **Manage Permissions**: Choose which photos others can download.
 
     ### Tips
-    - Use the dark mode toggle for better visibility.
-    - Images must be JPG/PNG and under 5MB.
-    - Ensure crop coordinates are within image bounds to avoid errors.
-    - Admin login persists for 1 day; use the Logout button to end the session.
+    - **File Size**: Photos must be JPG or PNG and under 5MB.
+    - **Crop Tool**: Click and drag on the photo to select an area to keep.
+    - **Dark Mode**: Toggle for better visibility in low light.
+    - **Need Help?**: If you see errors, try refreshing or contact support.
     """)
