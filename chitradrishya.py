@@ -104,7 +104,7 @@ class DatabaseManager:
             c.execute("""
                 CREATE TABLE IF NOT EXISTS folders (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    folder TEXT UNIQUE NOT NULL,
+                    folder TEXT UNIQUE NOT NOT NULL,
                     name TEXT NOT NULL,
                     age INTEGER NOT NULL,
                     profession TEXT NOT NULL,
@@ -543,7 +543,7 @@ if "zoom_index" not in st.session_state:
 if "is_author" not in st.session_state:
     st.session_state.is_author = False
 if "crop_coords" not in st.session_state:
-    st.session_state.crop_coords = None
+    st.session_state.crop_coords = {}
 if "upload_previews" not in st.session_state:
     st.session_state.upload_previews = []
 if "dark_mode" not in st.session_state:
@@ -556,6 +556,8 @@ if "form_upload_folder" not in st.session_state:
     st.session_state.form_upload_folder = None
 if "form_download_allowed" not in st.session_state:
     st.session_state.form_download_allowed = None
+if "edit_history" not in st.session_state:
+    st.session_state.edit_history = {}
 
 # -------------------------------
 # CSS and JavaScript
@@ -609,7 +611,14 @@ img {
     border-radius: 8px;
     object-fit: cover;
     width: 100%;
-    height: 100px;
+}
+.edit-container {
+    display: flex;
+    gap: 2rem;
+    padding: 1rem;
+    background: var(--card-bg, #ffffff);
+    border-radius: 12px;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.08);
 }
 .canvas-container {
     position: relative;
@@ -644,14 +653,15 @@ img {
 }
 .before-after-container {
     position: relative;
-    width: 300px;
-    height: 200px;
+    width: 100%;
+    max-width: 400px;
+    height: 300px;
     margin: 1rem 0;
 }
 .before-after-image {
     width: 100%;
     height: 100%;
-    object-fit: cover;
+    object-fit: contain;
     border-radius: 8px;
 }
 .slider {
@@ -660,6 +670,19 @@ img {
     height: 100%;
     background: #007bff;
     cursor: ew-resize;
+}
+.thumbnail-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(80px, 1fr));
+    gap: 0.5rem;
+    margin-bottom: 1rem;
+}
+.thumbnail-grid img {
+    cursor: pointer;
+    border: 2px solid transparent;
+}
+.thumbnail-grid img:hover, .thumbnail-grid img.selected {
+    border: 2px solid #007bff;
 }
 :root {
     --bg-color: #f5f5f5;
@@ -676,6 +699,58 @@ img {
     --header-bg: #2d2d2d;
 }
 </style>
+<script>
+function initCropCanvas(canvasId, imageId, hiddenInputId) {
+    const canvas = document.getElementById(canvasId);
+    const ctx = canvas.getContext('2d');
+    const img = document.getElementById(imageId);
+    let isDrawing = false;
+    let startX, startY, endX, endY;
+
+    img.onload = function() {
+        canvas.width = img.width;
+        canvas.height = img.height;
+        ctx.drawImage(img, 0, 0);
+    };
+
+    canvas.addEventListener('mousedown', (e) => {
+        isDrawing = true;
+        const rect = canvas.getBoundingClientRect();
+        startX = e.clientX - rect.left;
+        startY = e.clientY - rect.top;
+        endX = startX;
+        endY = startY;
+    });
+
+    canvas.addEventListener('mousemove', (e) => {
+        if (!isDrawing) return;
+        const rect = canvas.getBoundingClientRect();
+        endX = e.clientX - rect.left;
+        endY = e.clientY - rect.top;
+
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        ctx.drawImage(img, 0, 0);
+        
+        ctx.beginPath();
+        ctx.setLineDash([5, 5]);
+        ctx.strokeStyle = '#007bff';
+        ctx.lineWidth = 2;
+        ctx.rect(startX, startY, endX - startX, endY - startY);
+        ctx.stroke();
+    });
+
+    canvas.addEventListener('mouseup', () => {
+        isDrawing = false;
+        const coords = {
+            x: Math.min(startX, endX),
+            y: Math.min(startY, endY),
+            width: Math.abs(endX - startX),
+            height: Math.abs(endY - startY)
+        };
+        document.getElementById(hiddenInputId).value = JSON.stringify(coords);
+    });
+}
+</script>
 """, unsafe_allow_html=True)
 
 # Apply dark mode if enabled
@@ -782,10 +857,16 @@ with st.sidebar:
                     if len(valid_files) != len(uploaded_files):
                         st.warning("Some files were invalid or corrupted and skipped.")
                     if valid_files:
-                        st.session_state.upload_previews = valid_files
+                        # Store both file and original data
+                        st.session_state.upload_previews = [
+                            {"file": f, "data": f.read(), "original_data": f.read()} for f in valid_files
+                        ]
+                        for f in valid_files:
+                            f.seek(0)  # Reset file pointer
                         st.session_state.upload_step = 1
                         st.session_state.form_upload_folder = folder_choice
                         st.session_state.form_download_allowed = download_allowed
+                        st.session_state.edit_history = {f["file"].name: [] for f in st.session_state.upload_previews}
                         st.rerun()
                     else:
                         st.error("No valid files uploaded. Please check file types and sizes.")
@@ -892,62 +973,148 @@ with tabs[0]:
 # Gallery Tab (for upload step or zoom view)
 with tabs[1]:
     if st.session_state.upload_step == 1 and st.session_state.is_author:
-        st.subheader("🖼️ Upload Images - Edit & Preview")
+        st.subheader("🖼️ Image Editor")
         folder_choice = st.session_state.get("form_upload_folder", data[0]["folder"] if data else "")
         valid_files = st.session_state.upload_previews
-        edited_data_list = []
         
-        for i, file in enumerate(valid_files):
-            st.markdown(f"<div class='preview-container'>", unsafe_allow_html=True)
-            st.write(f"**Editing: {file.name}**")
-            file_data = file.read()
-            file.seek(0)
+        # Thumbnail selection
+        st.markdown("### Select Image to Edit")
+        cols = st.columns(5)
+        selected_index = st.session_state.get("selected_image_index", 0)
+        for idx, file_dict in enumerate(valid_files):
+            with cols[idx % 5]:
+                thumbnail = ImageProcessor.generate_thumbnail(Image.open(io.BytesIO(file_dict["data"])), size=(80, 80))
+                base64_thumb = image_to_base64(thumbnail_to_bytes(thumbnail))
+                if st.image(
+                    f"data:image/png;base64,{base64_thumb}",
+                    caption=file_dict["file"].name[:10] + "..." if len(file_dict["file"].name) > 10 else file_dict["file"].name,
+                    use_column_width=True
+                ):
+                    st.session_state.selected_image_index = idx
+                    st.rerun()
+
+        # Main edit interface
+        if valid_files:
+            file_dict = valid_files[selected_index]
+            st.markdown(f"<div class='edit-container'>", unsafe_allow_html=True)
             
-            try:
-                img = Image.open(io.BytesIO(file_data))
-                file_size_mb = len(file_data) / (1024 * 1024)
-                st.write(f"Size: {file_size_mb:.2f} MB, Dimensions: {img.width}x{img.height}")
-            except Exception as e:
-                st.error(f"Failed to load image {file.name}: {str(e)}")
-                logger.error(f"Failed to load image {file.name}: {str(e)}")
-                st.markdown("</div>", unsafe_allow_html=True)
-                continue
+            # Left column: Canvas and Previews
+            with st.container():
+                st.markdown("### Edit Preview")
+                img = Image.open(io.BytesIO(file_dict["data"]))
+                file_size_mb = len(file_dict["data"]) / (1024 * 1024)
+                st.write(f"**Editing: {file_dict['file'].name}** (Size: {file_size_mb:.2f} MB, Dimensions: {img.width}x{img.height})")
+                
+                # Crop Canvas
+                base64_image = image_to_base64(file_dict["data"])
+                canvas_id = f"cropCanvas_{selected_index}"
+                image_id = f"editImage_{selected_index}"
+                hidden_input_id = f"crop_coords_{selected_index}"
+                
+                st.markdown(f"""
+                <div class='canvas-container'>
+                    <canvas id='{canvas_id}'></canvas>
+                    <img id='{image_id}' src='data:image/png;base64,{base64_image}' style='display:none;'>
+                    <input type='hidden' id='{hidden_input_id}' name='crop_coords'>
+                </div>
+                <script>
+                    initCropCanvas('{canvas_id}', '{image_id}', '{hidden_input_id}');
+                </script>
+                """, unsafe_allow_html=True)
+                
+                # Side-by-side preview
+                st.markdown("### Before & After")
+                col1, col2 = st.columns(2)
+                with col1:
+                    st.markdown("**Original**")
+                    st.image(file_dict["original_data"], use_column_width=True)
+                with col2:
+                    st.markdown("**Edited**")
+                    st.image(file_dict["data"], use_column_width=True)
+                
+                # Crop preview
+                crop_coords = st.session_state.crop_coords.get(file_dict["file"].name)
+                if crop_coords:
+                    cropped_data = ImageProcessor.crop_image(file_dict["data"], (
+                        crop_coords["x"], crop_coords["y"],
+                        crop_coords["x"] + crop_coords["width"],
+                        crop_coords["y"] + crop_coords["height"]
+                    ))
+                    if cropped_data:
+                        st.markdown("**Crop Preview**")
+                        st.image(cropped_data, use_column_width=True)
+            
+            # Right column: Edit Controls
+            with st.container():
+                with st.form(key=f"edit_upload_form_{selected_index}"):
+                    st.markdown("### Editing Tools")
+                    
+                    with st.expander("🔲 Crop & Rotate", expanded=True):
+                        apply_crop = st.checkbox("Apply Crop", key=f"apply_crop_{selected_index}")
+                        crop_coords_input = st.text_input(
+                            "Crop Coordinates (x, y, width, height)",
+                            value=json.dumps(st.session_state.crop_coords.get(file_dict["file"].name, {})),
+                            key=f"crop_input_{selected_index}",
+                            disabled=True
+                        )
+                        rotate_angle = st.slider("Rotate (degrees)", -180, 180, 0, key=f"upload_rotate_{selected_index}", help="Rotate the image")
+                    
+                    with st.expander("🎨 Color Adjustments"):
+                        brightness = st.slider("Brightness", 0.0, 2.0, 1.0, step=0.1, key=f"upload_brightness_{selected_index}", help="Adjust brightness")
+                        contrast = st.slider("Contrast", 0.0, 2.0, 1.0, step=0.1, key=f"upload_contrast_{selected_index}", help="Adjust contrast")
+                        sharpness = st.slider("Sharpness", 0.0, 2.0, 1.0, step=0.1, key=f"upload_sharpness_{selected_index}", help="Adjust sharpness")
+                        grayscale = st.checkbox("Grayscale", key=f"upload_grayscale_{selected_index}", help="Convert to grayscale")
+                    
+                    col1, col2 = st.columns(2)
+                    with col1:
+                        if st.form_submit_button("💾 Apply Edits"):
+                            edited_data = file_dict["data"]
+                            if apply_crop and crop_coords:
+                                edited_data = ImageProcessor.crop_image(edited_data, (
+                                    crop_coords["x"], crop_coords["y"],
+                                    crop_coords["x"] + crop_coords["width"],
+                                    crop_coords["y"] + crop_coords["height"]
+                                ))
+                            if rotate_angle != 0:
+                                edited_data = ImageProcessor.rotate_image(edited_data, rotate_angle)
+                            if brightness != 1.0:
+                                edited_data = ImageProcessor.adjust_brightness(edited_data, brightness)
+                            if contrast != 1.0:
+                                edited_data = ImageProcessor.adjust_contrast(edited_data, contrast)
+                            if sharpness != 1.0:
+                                edited_data = ImageProcessor.adjust_sharpness(edited_data, sharpness)
+                            if grayscale:
+                                edited_data = ImageProcessor.convert_to_grayscale(edited_data)
+                            if edited_data:
+                                # Save to edit history
+                                st.session_state.edit_history[file_dict["file"].name].append(file_dict["data"])
+                                # Update preview
+                                valid_files[selected_index]["data"] = edited_data
+                                st.session_state.upload_previews = valid_files
+                                st.success("Edits applied!")
+                                st.rerun()
+                    
+                    with col2:
+                        if st.form_submit_button("↩️ Undo Last Edit"):
+                            if st.session_state.edit_history[file_dict["file"].name]:
+                                valid_files[selected_index]["data"] = st.session_state.edit_history[file_dict["file"].name].pop()
+                                st.session_state.upload_previews = valid_files
+                                st.success("Last edit undone!")
+                                st.rerun()
+                            else:
+                                st.error("No previous edits to undo.")
 
-            # Display the image for editing
-            st.image(file_data, caption="Original Image", use_column_width=True)
-
-            # Edit Controls
-            with st.form(key=f"edit_upload_form_{i}"):
-                rotate_angle = st.slider("Rotate (degrees)", -180, 180, 0, key=f"upload_rotate_{i}", help="Rotate the image")
-                brightness = st.slider("Brightness", 0.0, 2.0, 1.0, step=0.1, key=f"upload_brightness_{i}", help="Adjust brightness")
-                contrast = st.slider("Contrast", 0.0, 2.0, 1.0, step=0.1, key=f"upload_contrast_{i}", help="Adjust contrast")
-                sharpness = st.slider("Sharpness", 0.0, 2.0, 1.0, step=0.1, key=f"upload_sharpness_{i}", help="Adjust sharpness")
-                grayscale = st.checkbox("Grayscale", key=f"upload_grayscale_{i}", help="Convert to grayscale")
-
-                if st.form_submit_button("Apply Edits"):
-                    edited_data = file_data
-                    if rotate_angle != 0:
-                        edited_data = ImageProcessor.rotate_image(edited_data, rotate_angle)
-                    if brightness != 1.0:
-                        edited_data = ImageProcessor.adjust_brightness(edited_data, brightness)
-                    if contrast != 1.0:
-                        edited_data = ImageProcessor.adjust_contrast(edited_data, contrast)
-                    if sharpness != 1.0:
-                        edited_data = ImageProcessor.adjust_sharpness(edited_data, sharpness)
-                    if grayscale:
-                        edited_data = ImageProcessor.convert_to_grayscale(edited_data)
-                    if edited_data:
-                        edited_data_list.append(edited_data)
-                        st.session_state.upload_previews[i] = io.BytesIO(edited_data)
-                        st.success("Edits applied! Preview updated.")
-                        st.rerun()
-
-            if st.button("Reset Edits", key=f"reset_upload_{i}", help="Revert to original image"):
-                st.session_state.upload_previews[i] = io.BytesIO(file_data)
-                st.rerun()
+                if st.button("🔄 Reset to Original", key=f"reset_upload_{selected_index}", help="Revert to original image"):
+                    valid_files[selected_index]["data"] = file_dict["original_data"]
+                    st.session_state.upload_previews = valid_files
+                    st.session_state.edit_history[file_dict["file"].name] = []
+                    st.session_state.crop_coords[file_dict["file"].name] = {}
+                    st.success("Reset to original image!")
+                    st.rerun()
 
             st.markdown("</div>", unsafe_allow_html=True)
-
+        
+        # Navigation buttons
         col1, col2 = st.columns([1, 1])
         with col1:
             if st.button("⬅️ Back to Upload", help="Return to upload selection"):
@@ -955,11 +1122,14 @@ with tabs[1]:
                 st.session_state.upload_previews = []
                 st.session_state.form_upload_folder = None
                 st.session_state.form_download_allowed = None
+                st.session_state.edit_history = {}
+                st.session_state.crop_coords = {}
                 st.rerun()
         with col2:
             if st.button("✅ Upload Images", help="Save all edited images"):
                 with st.spinner("Uploading images..."):
                     progress_bar = st.progress(0)
+                    edited_data_list = [f["data"] for f in valid_files]
                     for j in range(len(edited_data_list)):
                         progress_bar.progress((j + 1) / len(edited_data_list))
                     DatabaseManager.load_images_to_db(edited_data_list, folder_choice, st.session_state.get("form_download_allowed", True))
@@ -969,6 +1139,8 @@ with tabs[1]:
                 st.session_state.upload_previews = []
                 st.session_state.form_upload_folder = None
                 st.session_state.form_download_allowed = None
+                st.session_state.edit_history = {}
+                st.session_state.crop_coords = {}
                 st.rerun()
     
     elif st.session_state.zoom_folder:
@@ -983,7 +1155,7 @@ with tabs[1]:
         st.subheader(f"🖼️ Viewing {folder} ({idx+1}/{len(images)})")
         
         # Display the image
-        st.image(img_dict["image"], use_container_width=True)
+        st.image(img_dict["image"], use_column_width=True)
 
         col1, col2, col3 = st.columns([1, 6, 1])
         with col1:
@@ -1001,53 +1173,107 @@ with tabs[1]:
 
         if st.session_state.is_author:
             with st.expander("✏️ Edit Image", expanded=True):
+                # Crop Canvas
+                base64_image = img_dict["base64"]
+                canvas_id = f"cropCanvas_zoom_{idx}"
+                image_id = f"editImage_zoom_{idx}"
+                hidden_input_id = f"crop_coords_zoom_{idx}"
+                
+                st.markdown(f"""
+                <div class='canvas-container'>
+                    <canvas id='{canvas_id}'></canvas>
+                    <img id='{image_id}' src='data:image/png;base64,{base64_image}' style='display:none;'>
+                    <input type='hidden' id='{hidden_input_id}' name='crop_coords'>
+                </div>
+                <script>
+                    initCropCanvas('{canvas_id}', '{image_id}', '{hidden_input_id}');
+                </script>
+                """, unsafe_allow_html=True)
+                
+                # Side-by-side preview
+                st.markdown("### Before & After")
+                col1, col2 = st.columns(2)
+                with col1:
+                    st.markdown("**Original**")
+                    st.image(img_dict["data"], use_column_width=True)
+                with col2:
+                    st.markdown("**Edited**")
+                    edited_data = img_dict["data"]
+                    crop_coords = st.session_state.crop_coords.get(img_dict["name"])
+                    if crop_coords:
+                        edited_data = ImageProcessor.crop_image(edited_data, (
+                            crop_coords["x"], crop_coords["y"],
+                            crop_coords["x"] + crop_coords["width"],
+                            crop_coords["y"] + crop_coords["height"]
+                        ))
+                    st.image(edited_data, use_column_width=True)
+
                 with st.form(key=f"edit_image_form_{folder}_{img_dict['name']}"):
-                    rotate_angle = st.slider("Rotate (degrees)", -180, 180, 0, key=f"rotate_{folder}_{img_dict['name']}", help="Rotate the image")
-                    brightness = st.slider("Brightness", 0.0, 2.0, 1.0, step=0.1, key=f"brightness_{folder}_{img_dict['name']}", help="Adjust brightness")
-                    contrast = st.slider("Contrast", 0.0, 2.0, 1.0, step=0.1, key=f"contrast_{folder}_{img_dict['name']}", help="Adjust contrast")
-                    sharpness = st.slider("Sharpness", 0.0, 2.0, 1.0, step=0.1, key=f"sharpness_{folder}_{img_dict['name']}", help="Adjust sharpness")
-                    grayscale = st.checkbox("Grayscale", key=f"grayscale_{folder}_{img_dict['name']}", help="Convert to grayscale")
+                    with st.expander("🔲 Crop & Rotate", expanded=True):
+                        apply_crop = st.checkbox("Apply Crop", key=f"apply_crop_zoom_{idx}")
+                        crop_coords_input = st.text_input(
+                            "Crop Coordinates (x, y, width, height)",
+                            value=json.dumps(st.session_state.crop_coords.get(img_dict["name"], {})),
+                            key=f"crop_input_zoom_{idx}",
+                            disabled=True
+                        )
+                        rotate_angle = st.slider("Rotate (degrees)", -180, 180, 0, key=f"rotate_{folder}_{img_dict['name']}", help="Rotate the image")
+                    
+                    with st.expander("🎨 Color Adjustments"):
+                        brightness = st.slider("Brightness", 0.0, 2.0, 1.0, step=0.1, key=f"brightness_{folder}_{img_dict['name']}", help="Adjust brightness")
+                        contrast = st.slider("Contrast", 0.0, 2.0, 1.0, step=0.1, key=f"contrast_{folder}_{img_dict['name']}", help="Adjust contrast")
+                        sharpness = st.slider("Sharpness", 0.0, 2.0, 1.0, step=0.1, key=f"sharpness_{folder}_{img_dict['name']}", help="Adjust sharpness")
+                        grayscale = st.checkbox("Grayscale", key=f"grayscale_{folder}_{img_dict['name']}", help="Convert to grayscale")
 
-                    if st.form_submit_button("💾 Apply Edits"):
-                        image_id = DatabaseManager.get_image_id(folder, img_dict["name"])
-                        if image_id:
-                            DatabaseManager.save_image_history(image_id, folder, img_dict["data"])
+                    col1, col2 = st.columns(2)
+                    with col1:
+                        if st.form_submit_button("💾 Apply Edits"):
+                            image_id = DatabaseManager.get_image_id(folder, img_dict["name"])
+                            if image_id:
+                                DatabaseManager.save_image_history(image_id, folder, img_dict["data"])
 
-                        edited_data = img_dict["data"]
-                        if rotate_angle != 0:
-                            edited_data = ImageProcessor.rotate_image(edited_data, rotate_angle)
-                        if brightness != 1.0:
-                            edited_data = ImageProcessor.adjust_brightness(edited_data, brightness)
-                        if contrast != 1.0:
-                            edited_data = ImageProcessor.adjust_contrast(edited_data, contrast)
-                        if sharpness != 1.0:
-                            edited_data = ImageProcessor.adjust_sharpness(edited_data, sharpness)
-                        if grayscale:
-                            edited_data = ImageProcessor.convert_to_grayscale(edited_data)
+                            edited_data = img_dict["data"]
+                            if apply_crop and crop_coords:
+                                edited_data = ImageProcessor.crop_image(edited_data, (
+                                    crop_coords["x"], crop_coords["y"],
+                                    crop_coords["x"] + crop_coords["width"],
+                                    crop_coords["y"] + crop_coords["height"]
+                                ))
+                            if rotate_angle != 0:
+                                edited_data = ImageProcessor.rotate_image(edited_data, rotate_angle)
+                            if brightness != 1.0:
+                                edited_data = ImageProcessor.adjust_brightness(edited_data, brightness)
+                            if contrast != 1.0:
+                                edited_data = ImageProcessor.adjust_contrast(edited_data, contrast)
+                            if sharpness != 1.0:
+                                edited_data = ImageProcessor.adjust_sharpness(edited_data, sharpness)
+                            if grayscale:
+                                edited_data = ImageProcessor.convert_to_grayscale(edited_data)
 
-                        if edited_data:
-                            conn = DatabaseManager.connect()
-                            try:
-                                c = conn.cursor()
-                                c.execute("UPDATE images SET image_data = ? WHERE folder = ? AND name = ?",
-                                          (edited_data, folder, img_dict["name"]))
-                                conn.commit()
-                                st.success("Image edited successfully!")
+                            if edited_data:
+                                conn = DatabaseManager.connect()
+                                try:
+                                    c = conn.cursor()
+                                    c.execute("UPDATE images SET image_data = ? WHERE folder = ? AND name = ?",
+                                              (edited_data, folder, img_dict["name"]))
+                                    conn.commit()
+                                    st.success("Image edited successfully!")
+                                    st.balloons()
+                                    logger.info(f"Applied edits to image '{img_dict['name']}' in folder '{folder}'")
+                                    st.rerun()
+                                finally:
+                                    conn.close()
+                            else:
+                                st.error("Failed to edit image.")
+                    
+                    with col2:
+                        if st.form_submit_button("↩️ Undo Last Edit"):
+                            if DatabaseManager.undo_image_edit(folder, img_dict["name"]):
+                                st.success("Image restored!")
                                 st.balloons()
-                                logger.info(f"Applied edits to image '{img_dict['name']}' in folder '{folder}'")
                                 st.rerun()
-                            finally:
-                                conn.close()
-                        else:
-                            st.error("Failed to edit image.")
-
-                    if st.button("↩️ Undo Last Edit", help="Revert to the previous version"):
-                        if DatabaseManager.undo_image_edit(folder, img_dict["name"]):
-                            st.success("Image restored!")
-                            st.balloons()
-                            st.rerun()
-                        else:
-                            st.error("No previous version available.")
+                            else:
+                                st.error("No previous version available.")
 
             if st.button("🗑️ Delete Image", key=f"delete_{folder}_{img_dict['name']}", help="Delete this image"):
                 DatabaseManager.delete_image(folder, img_dict["name"])
@@ -1062,7 +1288,7 @@ with tabs[1]:
         if st.button("⬅️ Back to Gallery", key=f"back_{folder}", help="Return to gallery view"):
             st.session_state.zoom_folder = None
             st.session_state.zoom_index = 0
-            st.session_state.crop_coords = None
+            st.session_state.crop_coords = {}
             st.rerun()
 
     else:
@@ -1089,7 +1315,7 @@ for cat, tab in zip(categories, tabs[2:-1]):
                             st.session_state.zoom_folder = f["folder"]
                             st.session_state.zoom_index = idx
                             st.rerun()
-                        st.image(img_dict["thumbnail"], use_container_width=True, caption=f"Image {idx+1}")
+                        st.image(img_dict["thumbnail"], use_column_width=True, caption=f"Image {idx+1}")
                 st.markdown('</div>', unsafe_allow_html=True)
             else:
                 st.warning(f"No images found for {f['name']}")
@@ -1142,13 +1368,24 @@ with tabs[-1]:
     ### Admin Tools
     1. **Login**: Enter the admin password in the sidebar.
     2. **Add Folders**: Create new folders with a name, age, profession, and category.
-    3. **Upload Images**: Select a folder, upload images, and edit them (rotate, brightness, etc.).
-    4. **Edit Images**: In zoom view, apply edits or undo changes.
+    3. **Upload Images**: Select a folder, upload images, and edit them with the advanced editor.
+    4. **Edit Images**: Use the crop canvas, adjust colors, and preview changes in real-time.
     5. **Manage Permissions**: Control which images can be downloaded.
+
+    ### Image Editor
+    - **Crop Canvas**: Click and drag to select a crop area, then apply the crop.
+    - **Before & After**: View original and edited images side by side.
+    - **Batch Editing**: Select thumbnails to edit multiple images.
+    - **Undo/Reset**: Undo individual edits or reset to the original image.
 
     ### Tips
     - Use the dark mode toggle for better visibility.
     - Images must be JPG/PNG and under 5MB.
+    - Ensure crop coordinates are within image bounds to avoid errors.
     """)
 
-
+def thumbnail_to_bytes(image):
+    """Convert PIL Image to bytes."""
+    output = io.BytesIO()
+    image.save(output, format="PNG")
+    return output.getvalue()
