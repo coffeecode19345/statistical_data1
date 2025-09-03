@@ -12,6 +12,10 @@ import logging
 import json
 import names
 import plotly.express as px
+try:
+    from streamlit_javascript import st_javascript
+except ImportError:
+    st_javascript = lambda x: ""  # Fallback to empty string if package is missing
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -22,7 +26,7 @@ load_dotenv()
 ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "admin123")  # Fallback for testing
 DB_PATH = "gallery.db"
 MAX_FILE_SIZE_MB = 5  # Max file size for uploads in MB
-FORCE_DB_RESET = os.getenv("FORCE_DB_RESET", "False").lower() == "true"  # Define with default value
+FORCE_DB_RESET = os.getenv("FORCE_DB_RESET", "False").lower() == "true"
 
 # -------------------------------
 # Helper Functions
@@ -612,10 +616,14 @@ window.addEventListener('load', function() {
 """, unsafe_allow_html=True)
 
 # Check for restored is_author state
-restore_is_author = st_javascript("document.getElementById('restore_is_author') ? document.getElementById('restore_is_author').value : ''")
-if restore_is_author == 'true' and not st.session_state.is_author:
-    st.session_state.is_author = True
-    logger.info("Restored admin login state from cookie")
+try:
+    restore_is_author = st_javascript("document.getElementById('restore_is_author') ? document.getElementById('restore_is_author').value : ''")
+    if restore_is_author == 'true' and not st.session_state.is_author:
+        st.session_state.is_author = True
+        logger.info("Restored admin login state from cookie")
+except Exception as e:
+    logger.warning(f"Failed to execute st_javascript: {str(e)}")
+    restore_is_author = ''
 
 # -------------------------------
 # CSS and JavaScript for UI
@@ -948,6 +956,7 @@ with st.sidebar:
 
         with st.expander("🔄 Swap Image"):
             data = DatabaseManager.load_folders()
+            folder_choice_swap视角: Swap Image
             folder_choice_swap = st.selectbox("Select Folder", [item["folder"] for item in data], key="swap_folder")
             images = DatabaseManager.get_images(folder_choice_swap)
             if images:
