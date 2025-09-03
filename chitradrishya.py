@@ -1457,5 +1457,3 @@ with tabs[-1]:
     - Ensure crop coordinates are within image bounds to avoid errors.
     - Admin login persists for 1 day; use the Logout button to end the session.
     """)
-
-Let me know if this resolves the issues or if further refinements are needed!
