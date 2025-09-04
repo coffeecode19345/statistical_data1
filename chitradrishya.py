@@ -57,13 +57,13 @@ def init_db():
         )
     """)
     default_folders = [
-        #{"name": "Xiaojing", "age": 26, "profession": "Graphic Designer", "category": "Artists", "folder": "xiaojing"},
+        {"name": "Xiaoqing", "age": 26, "profession": "Graphic Designer", "category": "Artists", "folder": "xiaojing"},
         #{"name": "Yuena", "age": 29, "profession": "Painter", "category": "Artists", "folder": "yuena"},
         #{"name": "Yijie", "age": 30, "profession": "Literature Teacher", "category": "Teachers", "folder": "yijie"},
         #{"name": "Yajie", "age": 27, "profession": "Musician", "category": "Artists", "folder": "yajie"},
         #{"name": "Yu", "age": 47, "profession": "Data Scientist", "category": "Engineers", "folder": "yu"},
         #{"name": "Chunyang", "age": 25, "profession": "Software Developer", "category": "Engineers", "folder": "chunyang"},
-        #{"name": "Haoran", "age": 34, "profession": "History Teacher", "category": "Teachers", "folder": "haoran"},
+        #{"name": "Haokan", "age": 34, "profession": "History Teacher", "category": "Teachers", "folder": "haoran"},
     ]
     for folder_data in default_folders:
         c.execute("SELECT COUNT(*) FROM folders WHERE folder = ?", (folder_data["folder"],))
